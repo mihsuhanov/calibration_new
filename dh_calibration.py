@@ -30,7 +30,7 @@ POINTS = [[0.5, 0.5, 1],
           [0.34, 0.8, -0.3]]
 
 EXCLUDE_BASE_TOOL = True
-BYPASS = True
+BYPASS_SPHERE_MODELS = True
 
 def cross(a:np.ndarray,b:np.ndarray)->np.ndarray:
     return np.cross(a,b)
@@ -280,7 +280,7 @@ class HayatiModel:
         x0, y0, z0 = reference_position
         xc, yc, zc = self.fk(angles, 'real')[:3, 3] - reference_position
 
-        if BYPASS:
+        if BYPASS_SPHERE_MODELS:
             return np.array([xc, yc, zc], dtype='float')
 
         b = -2*xc
@@ -298,7 +298,7 @@ class HayatiModel:
         return -(np.array([x_det, y_det, z_det], dtype='float') + RADIUS)
     
     def inverse_sphere_model(self, detector_readings: np.ndarray) -> np.ndarray:
-        if BYPASS:
+        if BYPASS_SPHERE_MODELS:
             return detector_readings
 
         xd, yd, zd = -detector_readings - RADIUS
@@ -470,7 +470,7 @@ class HayatiModel:
             return jac, error_vec
                 
         elif self.dataset_type == 'sphere':
-            dataset = self.generate_sphere_dataset(60)
+            dataset = self.generate_sphere_dataset(100)
             jac = np.array([], dtype='float').reshape(0, 36)
             error_vec = np.array([], dtype='float')
             for row in dataset:
@@ -515,10 +515,7 @@ class HayatiModel:
 def main():
     model = HayatiModel(FILENAME, 'sphere')
     # model.write_dataset(model.generate_random_dataset(300))
-    model.write_dataset(model.generate_sphere_dataset(300))
-
-    # print(model.calibration_jacobian([0, 0, 0, 0, 0, 0], model.nominal_base_params, model.nominal_dh, model.nominal_tool_params))
-
+    # model.write_dataset(model.generate_sphere_dataset(300))
     model.gauss_newton_ls()
 
 
