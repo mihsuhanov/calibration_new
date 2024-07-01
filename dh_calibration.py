@@ -1,19 +1,46 @@
 import numpy as np
-
-from math import cos, sin, pi, sqrt, atan2
+from math import cos, sin, pi, sqrt, atan2, asin 
 from typing import Union
-import random
 import csv
-from scipy.optimize import minimize
-import json
-import time
-from multipledispatch import dispatch
+from scipy.optimize import minimize, lsq_linear
 
-np.set_printoptions(suppress=True, threshold=np.inf)
+np.set_printoptions(suppress=True, threshold=np.inf, precision=5)
+
 RADIUS = 0.025
+FIELDNAMES_OPTIONS = {
+    "random" : ['q1', 'q2', 'q3', 'q4', 'q5', 'q6', 'px_r', 'py_r', 'pz_r', 'rx_r', 'rx_y', 'rx_z'],
+    "sphere" : ['q1', 'q2', 'q3', 'q4', 'q5', 'q6', 'px_n', 'py_n', 'pz_n']
+}
+
+TASK_SCALE = np.diag([1, 1, 1, 0, 0, 0])
+FILENAME = 'data.csv'
+
+INITIAL_ROT = np.array([[1, 0,  0],
+                        [0, 0, -1],
+                        [0, 1,  0]], dtype="float")
+                       
+POINTS = [[0.5, 0.5, 1],
+          [0.7, 0.3, 0.5],
+          [0.7, 1, 0.3],
+          [0.34, 1, 0.3],
+          [-0.34, 1, 0.35],
+          [0.34, 0.8, -0.3],
+          [-0.7, 0.5, 0.4],
+          [0.34, 0.4, 0.3],
+          [0.34, 0.8, -0.3]]
+
+EXCLUDE_BASE_TOOL = True
+BYPASS = True
+
+def cross(a:np.ndarray,b:np.ndarray)->np.ndarray:
+    return np.cross(a,b)
 
 class HayatiModel:
-    def __init__(self):
+    def __init__(self, file, dataset_type):
+        self.fieldnames = FIELDNAMES_OPTIONS[dataset_type]
+        self.file = file
+        self.dataset_type = dataset_type
+
         # DH params: [a, alpha, d/beta, theta_offset, parallel_axis]. Angle beta is used instead of d if axis is nearly parallel to the previous
         self.nominal_dh = [[0, pi/2,     0.19,   pi/2, 0], #0-1
                            [0.8,  0,     0,      pi/2, 1], #1-2
@@ -22,33 +49,101 @@ class HayatiModel:
                            [0,   -pi/2,  0.13,   0,    0], #4-5
                            [0,    0,     0.069,  0,    0]] #5-6
         
-        self.nominal_base_params = [0.4, 0.4, 0, 0, 0, 0]
+        self.nominal_base_params = [0, 0, 0, 0, 0, 0]
         self.nominal_tool_params = [0, 0, 0, 0, 0, 0]
         
-        self.estimated_dh = None
-        self.estimated_base_params = None
-        self.estimated_tool_params = None
+        self.estimated_dh = self.nominal_dh.copy()
+        self.estimated_base_params = self.nominal_base_params.copy()
+        self.estimated_tool_params = self.nominal_tool_params.copy()
 
-        self.real_dh = [[0, 1.56,     0.19,   1.56, 0], #0-1
-                        [0.801,  0,     0,      1.57, 1], #1-2
-                        [0.722, 0.001,     0,      0,    1], #2-3
-                        [0.001,   -1.57, -0.191, -1.57, 0], #3-4
-                        [-0.001,   -1.57,  0.1305,   0,    0], #4-5
-                        [0,    0,     0.0685,  0,    0]] #5-6
-        self.real_base_params = [0.41, 0.399, 0, 0, 0, 0]
+        self.real_dh = [[0.002,   1.56,    0.192,    1.56,    0], #0-1
+                        [0.801,   0.005,   0.003,    1.55,    1], #1-2
+                        [0.722,   0.001,   0.001,    0.004,   1], #2-3
+                        [0.001,  -1.57,   -0.191,   -1.6,     0], #3-4
+                        [-0.001, -1.57,    0.1305,   0.02,    0], #4-5
+                        [0.005,   0.01,    0.0685,  -0.015,   0]] #5-6
+        self.real_base_params = [0, 0, 0, 0, 0, 0]
         self.real_tool_params = [0, 0, 0, 0, 0, 0]
 
-        self.measurable_params_mask = np.array([0, 1, 2], dtype='int')
+        if self.dataset_type == "random":
+            self.measurable_params_mask = np.array([0, 1, 2, 3, 4, 5], dtype='int')
+        else:
+            self.measurable_params_mask = np.array([0, 1, 2], dtype='int')
+
         self.identifiability_mask = np.ones(36, dtype='int')
         self.koef = 0.001
+        
 
-    
     def y_rot(self, angle: Union[int, float]) -> np.ndarray:
         mat = np.array([[cos(angle), 0, sin(angle), 0],
                         [0, 1, 0, 0],
                         [-sin(angle), 0, cos(angle), 0],
                         [0, 0, 0, 1]],dtype='float')
         return mat
+
+    def init_metrics(self):
+        self.cond = None
+        self.norm = None
+        self.max_x_error = 0
+        self.max_y_error = 0
+        self.max_z_error = 0
+        self.max_dist_error = 0
+        self.min_x_error = 999999
+        self.min_y_error = 999999
+        self.min_z_error = 999999
+        self.min_dist_error = 999999
+
+    def calculate_metrics(self, err):
+        dist_error = np.linalg.norm(err[:3])
+        if abs(err[0]) > self.max_x_error:
+            self.max_x_error = abs(err[0])
+        if abs(err[1]) > self.max_y_error:
+            self.max_y_error = abs(err[1])
+        if abs(err[2]) > self.max_z_error:
+            self.max_z_error = abs(err[2])
+        if dist_error > self.max_dist_error:
+            self.max_dist_error = dist_error
+
+        if abs(err[0]) < self.min_x_error:
+            self.min_x_error = abs(err[0])
+        if abs(err[1]) < self.min_y_error:
+            self.min_y_error = abs(err[1])
+        if abs(err[2]) < self.min_z_error:
+            self.min_z_error = abs(err[2])
+        if dist_error < self.min_dist_error:
+            self.min_dist_error = dist_error
+        
+    def display_metrics(self):
+        print(f"Norm: {self.norm}\n" +
+              f"Cond: {self.cond}\n" +
+              f"Identifiables: {self.identifiability_mask} ({self.identifiability_mask.sum()})\n" +
+              f"Max x error: {self.max_x_error}\n" +
+              f"Max y error: {self.max_y_error}\n" +
+              f"Max z error: {self.max_z_error}\n" +
+              f"Max dist error: {self.max_dist_error}\n" +
+              f"Min x error: {self.min_x_error}\n" +
+              f"Min y error: {self.min_y_error}\n" +
+              f"Min z error: {self.min_z_error}\n" +
+              f"Min dist error: {self.min_dist_error}\n" +
+              f"Base: {self.estimated_base_params}\n" +
+              f"Tool: {self.estimated_tool_params}\n")
+        print("DH: ", *self.estimated_dh, sep='\n',)
+
+    def test_estimated_params(self, samples=300):
+        print(f"\nTesting estimated params on {samples} random samples\n")
+        self.init_metrics()
+        for _ in range(samples):
+            angle_set = (np.random.rand(6) - 0.5) * 2 * pi
+            estimated_position = self.fk(angle_set, 'estimated')[:3, 3]
+            real_position = self.fk(angle_set, 'real')[:3, 3]
+            self.calculate_metrics(real_position - estimated_position)
+        self.display_metrics()
+        input()
+              
+    def write_results(self, filename='results.txt'):
+        datastring = str(self.estimated_base_params) + '\n' + str(self.estimated_dh) + '\n' + str(self.estimated_tool_params)
+        with open(filename, 'w') as file:
+            file.write(datastring)
 
     def z_rot(self, angle: Union[int, float]) -> np.ndarray:
         mat = np.array([[cos(angle), -sin(angle), 0, 0],
@@ -71,6 +166,11 @@ class HayatiModel:
                         [0, 0, 1, vector[2]],
                         [0, 0, 0, 1]],dtype='float')
         return mat
+    
+    def extract_zyx_euler(self, mat: np.ndarray) -> np.ndarray:
+        sy = -mat[2, 0]
+        cy = sqrt(1 - sy**2)
+        return np.array([atan2(mat[2, 1]/cy, mat[2, 2]/cy) , asin(sy), atan2(mat[1, 0]/cy, mat[0, 0]/cy)], dtype='float')
     
     def dh_trans(self, params: Union[np.ndarray, list], angle: Union[int, float]) -> np.ndarray:
         a, alpha, d, theta_offtet, _ = params
@@ -132,12 +232,11 @@ class HayatiModel:
         tfs = self.get_transforms(angles, params)
         for tf in tfs:
             main_tf = main_tf @ tf
-
         return main_tf @ tool
 
-    def numerical_ik(self, target_pose: np.ndarray, initial_guess: Union[np.ndarray, list]) -> np.ndarray:
+    def numerical_ik(self, target_pose: np.ndarray, initial_guess: Union[np.ndarray, list], type: str) -> np.ndarray:
         def cost(x, target_pose):
-            pose = self.fk(x, 'nominal')
+            pose = self.fk(x, type)
             res = np.linalg.norm(pose - target_pose)
             return res
 
@@ -146,56 +245,103 @@ class HayatiModel:
 
     def generate_angles(self, inc_rx, inc_ry, inc_rz, initial_pose, initial_angles, samples):
         angles = [initial_angles]
-        nominal_positions = [self.fk(initial_angles, 'nominal')[:3, 3]]
-        real_positions = [self.fk(initial_angles, 'real')[:3, 3]]
-
         pose = initial_pose
         for i in range(samples):
-            # pose = pose @ self.z_rot(inc_rz) @ self.y_rot(inc_ry) @ self.x_rot(inc_rx)
-            # angle_set, val = self.numerical_ik(pose, angles[i - 1])
-            # if val < 1.0e-5:
-            #     angles.append(angle_set)
-            #     nominal_positions.append(self.fk(angle_set, 'nominal')[:3, 3])
-            #     real_positions.append(self.fk(angle_set, 'real')[:3, 3])
+            pose = pose @ self.z_rot(inc_rz) @ self.y_rot(inc_ry) @ self.x_rot(inc_rx)
+            angle_set, val = self.numerical_ik(pose, angles[i - 1], 'estimated')
+            if val < 1.0e-5:
+                angles.append(angle_set)
+
+        return angles
+
+    def generate_sphere_dataset(self, samples=300):
+        dataset = np.array([], dtype='float').reshape(0, len(self.fieldnames))
+        for point in POINTS:
+            pose = np.eye(4, 4)
+            pose[0:3, 0:3] = INITIAL_ROT
+            pose[:3, 3] = np.array(point)
+
+            iterations = 0
+            val = 100
+            while val > 1.0e-5 and iterations < 1000:
+                angle_set, val = self.numerical_ik(pose, (np.random.rand(6) - 0.5) * 2 * pi, 'estimated')
+                iterations += 1
+            if iterations == 1000:
+                print(f"Unable to find good solution for point {point}")
+                break
+            angles = self.generate_angles(0.05, 0.05, 0.05, pose, angle_set, samples)
+
+            for angle_set in angles:
+                dataset = np.concatenate((dataset, np.concatenate((angle_set, point)).reshape(1, len(self.fieldnames))), axis=0)
+
+        return dataset
+
+    def direct_sphere_model(self, reference_position: np.ndarray, angles: np.ndarray) -> np.ndarray:
+        x0, y0, z0 = reference_position
+        xc, yc, zc = self.fk(angles, 'real')[:3, 3] - reference_position
+
+        if BYPASS:
+            return np.array([xc, yc, zc], dtype='float')
+
+        b = -2*xc
+        c = xc**2 + (y0 - yc)**2 + (z0 - zc)**2 - RADIUS**2
+        x_det = (-b - sqrt(b**2 - 4*c))/2
+
+        b = -2*yc
+        c = yc**2 + (x0 - xc)**2 + (z0 - zc)**2 - RADIUS**2
+        y_det = (-b - sqrt(b**2 - 4*c))/2
+
+        b = -2*zc
+        c = zc**2 + (x0 - xc)**2 + (y0 - yc)**2 - RADIUS**2
+        z_det = (-b - sqrt(b**2 - 4*c))/2
+
+        return -(np.array([x_det, y_det, z_det], dtype='float') + RADIUS)
+    
+    def inverse_sphere_model(self, detector_readings: np.ndarray) -> np.ndarray:
+        if BYPASS:
+            return detector_readings
+
+        xd, yd, zd = -detector_readings - RADIUS
+
+        b1 = 0.5 * (xd**2 - zd**2) / xd
+        a1 = zd / xd
+        b2 = 0.5 * (yd**2 - zd**2) / yd
+        a2 = zd / yd
+
+        a = (a1**2 + a2**2 + 1)
+        b = 2*(a1 * b1 + a2 * b2 - zd)
+        c = b1**2 + b2**2 + zd**2 - RADIUS**2
+
+        z = 0.5 * (-b + sqrt(b**2 - 4*a*c)) / a
+        x = a1 * z + b1
+        y = a2 * z + b2
+
+        return np.array([x, y, z], dtype='float')
+
+    def generate_random_dataset(self, samples):
+        dataset = np.zeros((samples, len(self.fieldnames)))
+        for i in range(samples):
             angle_set = (np.random.rand(6) - 0.5) * 2 * pi
-            angles.append(angle_set)
-            nominal_positions.append(self.fk(angle_set, 'nominal')[:3, 3])
-            real_positions.append(self.fk(angle_set, 'real')[:3, 3])
+            real_pose = self.fk(angle_set, 'real')
+            real_position = real_pose[:3, 3]
+            real_orientation = self.extract_zyx_euler(real_pose)
+            dataset[i] = np.concatenate((angle_set, real_position, real_orientation))
+        return dataset
 
-        with open('data.csv', 'w', newline='') as csvfile:
-            fieldnames = ['q1', 'q2', 'q3', 'q4', 'q5', 'q6',
-                        'px_n', 'py_n', 'pz_n', 'px_r', 'py_r', 'pz_r']
-            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+    def write_dataset(self, dataset: np.ndarray):
+        with open(self.file, 'w', newline='') as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=self.fieldnames)
             writer.writeheader()
-
-            for q_vector, pos_n, pos_r in zip(angles, nominal_positions, real_positions):
-                writer.writerow({
-                    'q1': q_vector[0],
-                    'q2': q_vector[1],
-                    'q3': q_vector[2],
-                    'q4': q_vector[3],
-                    'q5': q_vector[4],
-                    'q6': q_vector[5],
-                    'px_n': pos_n[0],
-                    'py_n': pos_n[1],
-                    'pz_n': pos_n[2],
-                    'px_r': pos_r[0],
-                    'py_r': pos_r[1],
-                    'pz_r': pos_r[2]
-                })
-
+            for row in dataset:
+                writer.writerow({name: row[index] for index, name in enumerate(self.fieldnames)})
+        
     def read_dataset(self, file_name: str) -> Union[np.ndarray, np.ndarray]:
-        angles = []
-        nominal_positions = []
-        real_positions = []
+        dataset = np.array([], dtype='float').reshape(0, len(self.fieldnames))
         with open(file_name, newline='') as csvfile:
             reader = csv.DictReader(csvfile)
             for row in reader:
-                angles.append([float(row['q1']), float(row['q2']), float(row['q3']), float(row['q4']), float(row['q5']), float(row['q6'])])
-                nominal_positions.append([float(row['px_n']), float(row['py_n']), float(row['pz_n'])])
-                real_positions.append([float(row['px_r']), float(row['py_r']), float(row['pz_r'])])
-
-        return np.array(angles), np.array(nominal_positions), np.array(real_positions)
+                dataset = np.concatenate((dataset, np.array([float(row[field]) for field in self.fieldnames]).reshape(1, len(self.fieldnames))), axis=0)
+        return dataset
      
     def calibration_jacobian(self, angles: Union[np.ndarray, list], base: Union[np.ndarray, list],
                              dh: Union[np.ndarray, list], tool: Union[np.ndarray, list]) -> np.ndarray:
@@ -218,39 +364,25 @@ class HayatiModel:
         from_base_trans[-1] = from_base_trans[-2] @ tool
         from_tool_trans[0] = main_tf @ from_tool_trans[1]
 
-        # print(from_base_trans)
-        # print()
-        # print(from_tool_trans)
-
         # Jac structure: [[tx_b, ty_b, tz_b, rx_b, ry_b, rz_b], [d_a, d_alpha, d_d/d_beta, d_theta_off] - len(tfs) times, [tx_t, ty_t, tz_t, rx_t, ry_t, rz_t]]
         # [tx_b, ty_b, tz_b, rx_b, ry_b, rz_b] always equals eye(6, 6)
         # [tx_t, ty_t, tz_t, rx_t, ry_t, rz_t] = / R  0 \ ,  R - rotation matrix of tool relative to base
         #                                        \ 0  R /
         # Vertical order: [tx, ty, tz, rx, ry, rz]
-        # Model is redundant in number of params, but as calibration method uses only position measurements, base rotation and
-        # tool offset are unobservable. So, total number of remaining params is guaranteed to be less than 30 for 6R robot.
         
         jac = np.eye(6, len(tfs)*4 + 12)
-
         last_mat = np.zeros((6, 6))
         last_mat[:3, :3] = from_base_trans[-1][:3, :3]
         last_mat[3:6, 3:6] = from_base_trans[-1][:3, :3]
         jac[:, (6+(frames_cnt-2)*4):(12+(frames_cnt-2)*4)] = last_mat
 
-
         for i in range(1, len(tfs) + 1):
             jac_sub = np.zeros((6, 4))
-
             p_vec = from_base_trans[i - 1][0:3, 0:3] @ from_tool_trans[i][0:3, 3]
             p_vec_plus = from_base_trans[i][0:3, 0:3] @ from_tool_trans[i + 1][0:3, 3]
             xi_rot = (from_base_trans[i - 1][0:3, 0:3] @ self.z_rot(offsets[i - 1] + angles[i - 1])[0:3, 0:3])[0:3, 0]
-
-            # print('x_init: ', from_base_trans[i - 1][0:3, 0])
-            # print('x_rot: ', xi_rot)
             z_vec = from_base_trans[i - 1][0:3, 2]
-            # zi_rot = self.z_rot(offsets[i - 1] + angles[i - 1])[0:3, 0:3] @ z_vec
             y_vec_plus = from_base_trans[i][0:3, 1]
-
             # a
             jac_sub[:3, 0] = xi_rot
             # alpha
@@ -259,7 +391,6 @@ class HayatiModel:
             # theta
             jac_sub[:3, 3] = cross(z_vec, p_vec)
             jac_sub[3:6, 3] = z_vec
-
             if parallel_mask[i - 1] == 0:
                 # d
                 jac_sub[:3, 2] = z_vec
@@ -268,53 +399,9 @@ class HayatiModel:
                 jac_sub[:3, 2] = cross(y_vec_plus, p_vec_plus)
                 jac_sub[3:6, 2] = y_vec_plus
 
-            # print(jac_sub[self.measurable_params_mask, :])
-
             jac[:, (6+(i-1)*4):(10+(i-1)*4)] = jac_sub
 
         return jac[self.measurable_params_mask, :]
-
-    # def direct_sphere_model(self, reference_pose: np.ndarray, angles: list) -> list:
-    #     detector_readings = []
-    #     x0, y0, z0 = reference_pose[:3, 3]
-    #     for pose in angles:
-    #         xc, yc, zc = self.fk(pose, 'real')[:3, 3]
-
-    #         b = -2*xc
-    #         c = xc**2 + (y0 - yc)**2 + (z0 - zc)**2 - RADIUS**2
-    #         x_det = (-b - sqrt(b**2 - 4*c))/2
-
-    #         b = -2*yc
-    #         c = yc**2 + (x0 - xc)**2 + (z0 - zc)**2 - RADIUS**2
-    #         y_det = (-b - sqrt(b**2 - 4*c))/2
-
-    #         b = -2*zc
-    #         c = zc**2 + (x0 - xc)**2 + (y0 - yc)**2 - RADIUS**2
-    #         z_det = (-b - sqrt(b**2 - 4*c))/2
-    #         detector_readings.append(np.array([x_det, y_det, z_det]))
-
-    #     return detector_readings
-    
-    # def inverse_sphere_model(self, reference_pose: np.ndarray, angles: list) -> list:
-    #     detector_readings = []
-    #     x0, y0, z0 = reference_pose[:3, 3]
-    #     for pose in angles:
-    #         xc, yc, zc = self.fk(pose, 'real')[:3, 3]
-
-    #         b = -2*xc
-    #         c = xc**2 + (y0 - yc)**2 + (z0 - zc)**2 - RADIUS**2
-    #         x_det = (-b - sqrt(b**2 - 4*c))/2
-
-    #         b = -2*yc
-    #         c = yc**2 + (x0 - xc)**2 + (z0 - zc)**2 - RADIUS**2
-    #         y_det = (-b - sqrt(b**2 - 4*c))/2
-
-    #         b = -2*zc
-    #         c = zc**2 + (x0 - xc)**2 + (y0 - yc)**2 - RADIUS**2
-    #         z_det = (-b - sqrt(b**2 - 4*c))/2
-    #         detector_readings.append(np.array([x_det, y_det, z_det]))
-
-    #     return detector_readings
 
     def scaling_matrix(self, jac: np.ndarray) -> np.ndarray:
         diag = np.linalg.norm(jac, axis=0)
@@ -326,6 +413,10 @@ class HayatiModel:
         scale = self.scaling_matrix(jac)
         jac = jac @ scale
         idx = np.argwhere(np.all(jac[..., :] == 0, axis=0))
+
+        if EXCLUDE_BASE_TOOL:
+            idx = np.array(list(set([0, 1, 2, 3, 4, 5, -1, -2, -3, -3, -5, -6]).union(set(idx.flatten()))), dtype='int').reshape(-1, 1)
+        
         jac = np.delete(jac, idx, axis=1)
         for index in idx.flatten():
             self.identifiability_mask[index] = 0
@@ -338,14 +429,13 @@ class HayatiModel:
             self.identifiability_mask[np.cumsum(self.identifiability_mask) == ind + 1] = 0
             jac = np.delete(jac, ind, axis=1)
             cond = s[0]/s[dim - 1]
-        print("Cond: ", cond)
+        self.cond = cond
         return jac, scale
     
-    def pack_param_vec(self, base_i,  dh_i, tool_i):
+    def pack_param_vec(self, base_i, dh_i, tool_i):
         base = np.array(base_i)
         tool = np.array(tool_i)
-        dh = np.array(dh_i)
-        dh = np.delete(dh, 4, 1)
+        dh = np.delete(np.array(dh_i), 4, 1)
         return np.concatenate((base, dh.flatten(), tool))
 
     def unpack_param_vec(self, vec):
@@ -363,50 +453,73 @@ class HayatiModel:
         vec += mapped_inc * self.koef
         self.estimated_base_params, self.estimated_dh, self.estimated_tool_params = self.unpack_param_vec(vec)
 
-    def gauss_newton_ls(self):
-        angles, _, real_positions = self.read_dataset('data.csv')
-        self.estimated_dh = self.nominal_dh
-        self.estimated_base_params = self.nominal_base_params
-        self.estimated_tool_params = self.nominal_tool_params
-
-        while True:
+    def full_jac(self, dataset):
+        if self.dataset_type == 'random':
             jac = np.array([], dtype='float').reshape(0, 36)
             error_vec = np.array([], dtype='float')
-            for index, angle_set in enumerate(angles):
-                jac = np.concatenate((jac, self.calibration_jacobian(angle_set, self.estimated_base_params,
-                                                                     self.estimated_dh, self.estimated_tool_params)), axis=0)
-                estimated_position = self.fk(angle_set, 'estimated')[:3, 3]
-                error_vec = np.concatenate((error_vec, real_positions[index] - estimated_position), axis=0)
+            for row in dataset:
+                jac = np.concatenate((jac, TASK_SCALE @ self.calibration_jacobian(row[:6], self.estimated_base_params,
+                                                                                  self.estimated_dh, self.estimated_tool_params)), axis=0)
+                estimated_pose = self.fk(row[:6], 'estimated')
+                estimated_coordinates = np.concatenate((estimated_pose[:3, 3], self.extract_zyx_euler(estimated_pose)))
+                real_coordinates = np.concatenate((row[6:9], row[9:]))
+                cur_err = real_coordinates[self.measurable_params_mask] - estimated_coordinates[self.measurable_params_mask]
+                self.calculate_metrics(cur_err)                              
+                error_vec = np.concatenate((error_vec, TASK_SCALE @ cur_err), axis=0)
+            
+            return jac, error_vec
+                
+        elif self.dataset_type == 'sphere':
+            dataset = self.generate_sphere_dataset(60)
+            jac = np.array([], dtype='float').reshape(0, 36)
+            error_vec = np.array([], dtype='float')
+            for row in dataset:
+                jac = np.concatenate((jac,self.calibration_jacobian(row[:6], self.estimated_base_params,
+                                                                    self.estimated_dh, self.estimated_tool_params)), axis=0)
+                cur_err = self.inverse_sphere_model(self.direct_sphere_model(row[6:], row[:6]))
+                self.calculate_metrics(cur_err)
+                error_vec = np.concatenate((error_vec, cur_err))
 
+            return jac, error_vec
+
+    def end_of_cycle_action(self):
+        val = input()
+        try:
+            new_val = float(val)
+        except ValueError:
+            if val == 'exit':
+                self.write_results('results.txt')
+                return True
+            if val == 'test':
+                self.test_estimated_params()
+        else:
+            self.koef = new_val
+        return False
+
+    def gauss_newton_ls(self):
+        dataset = self.read_dataset(self.file)
+
+        while True:
+            self.init_metrics()
+            jac, error_vec = self.full_jac(dataset)
+            self.norm = np.linalg.norm(error_vec)
             new_jac, scale = self.remove_redundant_params(jac)
-            inc = np.linalg.pinv(new_jac) @ error_vec
-            self.update_params(inc, scale)
-            print("Norm: ", np.linalg.norm(error_vec))
-            print("Identifiables: ", self.identifiability_mask, f" ({self.identifiability_mask.sum()})")
-            print("Base: ", self.estimated_base_params)
-            print("DH: ", self.estimated_dh)
-            print("Tool: ", self.estimated_tool_params)
-            input()
+            # inc = np.linalg.pinv(new_jac) @ error_vec
+            solution = lsq_linear(new_jac, error_vec)
+            self.update_params(solution.x, scale)
+            self.display_metrics()
+            if self.end_of_cycle_action():
+                break
 
-    
-def cross(a:np.ndarray,b:np.ndarray)->np.ndarray:
-    return np.cross(a,b)
 
 def main():
-    model = HayatiModel()
+    model = HayatiModel(FILENAME, 'sphere')
+    # model.write_dataset(model.generate_random_dataset(300))
+    model.write_dataset(model.generate_sphere_dataset(300))
 
-    # Dataset generation
-    # target_pose = np.array([[1, 0,  0,  0.5],
-    #                         [0, 0, -1,  0.5],
-    #                         [0, 1,  0,  1.0],
-    #                         [0, 0,  0,  1   ]], dtype="float")
-    # first_result, _ = model.numerical_ik(target_pose, [0, 1, 1, 0, 0, 0])
-    # model.generate_angles(0.01, 0.01, 0.01, target_pose, first_result, 300)
-
-    # model.calibration_jacobian([0, 0, 0, 0, 0, 0], model.nominal_base_params, model.nominal_dh, model.nominal_tool_params)
+    # print(model.calibration_jacobian([0, 0, 0, 0, 0, 0], model.nominal_base_params, model.nominal_dh, model.nominal_tool_params))
 
     model.gauss_newton_ls()
-    # print(model.fk([0, 1, 1, 0, 0, 0], 'nominal'))
 
 
 if __name__ == "__main__":
