@@ -1,15 +1,19 @@
 import numpy as np
-from math import cos, sin, pi, sqrt, atan2, asin 
+from math import cos, sin, pi, sqrt, atan2, asin, log10
 from typing import Union
 import csv
 from scipy.optimize import minimize, lsq_linear
+from random import random
+from pyswarms import single
+from pyswarms.utils.functions import single_obj as fx
 
 np.set_printoptions(suppress=True, threshold=np.inf, precision=5)
 
 RADIUS = 0.025
 FIELDNAMES_OPTIONS = {
     "random" : ['q1', 'q2', 'q3', 'q4', 'q5', 'q6', 'px_r', 'py_r', 'pz_r', 'rx_r', 'rx_y', 'rx_z'],
-    "sphere" : ['q1', 'q2', 'q3', 'q4', 'q5', 'q6', 'px_n', 'py_n', 'pz_n']
+    "sphere" : ['q1', 'q2', 'q3', 'q4', 'q5', 'q6', 'px_n', 'py_n', 'pz_n'],
+    "runtime_sphere" : ['q1', 'q2', 'q3', 'q4', 'q5', 'q6', 'px_n', 'py_n', 'pz_n']
 }
 
 TASK_SCALE = np.diag([1, 1, 1, 0, 0, 0])
@@ -20,17 +24,25 @@ INITIAL_ROT = np.array([[1, 0,  0],
                         [0, 1,  0]], dtype="float")
                        
 POINTS = [[0.5, 0.5, 1],
-          [0.7, 0.3, 0.5],
-          [0.7, 1, 0.3],
-          [0.34, 1, 0.3],
-          [-0.34, 1, 0.35],
-          [0.34, 0.8, -0.3],
-          [-0.7, 0.5, 0.4],
-          [0.34, 0.4, 0.3],
-          [0.34, 0.8, -0.3]]
+        #   [0.7, 0.3, 0.5],
+        #   [0.7, 1, 0.3],
+        #   [0.34, 1, 0.3],
+        #   [-0.34, 1, 0.35],
+        #   [0.34, 0.8, -0.3],
+        #   [-0.7, 0.5, 0.4],
+        #   [0.34, 0.4, 0.3],
+        #   [0.34, 0.8, -0.3]
+          ]
+
+JOINT_LIMITS = [3.14, 1.04, 2.26, 3.14, 1.91, 3.14]
 
 EXCLUDE_BASE_TOOL = True
 BYPASS_SPHERE_MODELS = True
+
+ANGLE_DIST = 0.03
+LINEAR_DIST = 0.004
+BASE_DIST = 0.01
+TOOL_DIST = 0.001
 
 def cross(a:np.ndarray,b:np.ndarray)->np.ndarray:
     return np.cross(a,b)
@@ -145,6 +157,29 @@ class HayatiModel:
         with open(filename, 'w') as file:
             file.write(datastring)
 
+    def init_params(self):
+        vec = self.pack_param_vec(self.estimated_base_params, self.estimated_dh, self.estimated_tool_params)
+        if EXCLUDE_BASE_TOOL:
+            base_dist = 0
+            tool_dist = 0
+        else:
+            base_dist = BASE_DIST
+            tool_dist = TOOL_DIST
+        inc = np.array([(random() - 0.5)*base_dist for _ in range(6)], dtype='float')
+        for row in self.nominal_dh:
+            if row[-1]:
+                inc = np.concatenate((inc, np.array([(random() - 0.5)*LINEAR_DIST,
+                                                     (random() - 0.5)*ANGLE_DIST,
+                                                     (random() - 0.5)*LINEAR_DIST,
+                                                     (random() - 0.5)*ANGLE_DIST], dtype='float')))
+            else: 
+                inc = np.concatenate((inc, np.array([(random() - 0.5)*LINEAR_DIST,
+                                                     (random() - 0.5)*ANGLE_DIST,
+                                                     (random() - 0.5)*ANGLE_DIST,
+                                                     (random() - 0.5)*ANGLE_DIST], dtype='float')))
+        inc = np.concatenate((inc, np.array([(random() - 0.5)*tool_dist for _ in range(6)], dtype='float')))
+        self.estimated_base_params, self.estimated_dh, self.estimated_tool_params = self.unpack_param_vec(vec + inc)
+
     def z_rot(self, angle: Union[int, float]) -> np.ndarray:
         mat = np.array([[cos(angle), -sin(angle), 0, 0],
                         [sin(angle), cos(angle), 0, 0],
@@ -255,6 +290,7 @@ class HayatiModel:
         return angles
 
     def generate_sphere_dataset(self, samples=300):
+        self.init_params()
         dataset = np.array([], dtype='float').reshape(0, len(self.fieldnames))
         for point in POINTS:
             pose = np.eye(4, 4)
@@ -269,7 +305,7 @@ class HayatiModel:
             if iterations == 1000:
                 print(f"Unable to find good solution for point {point}")
                 break
-            angles = self.generate_angles(0.05, 0.05, 0.05, pose, angle_set, samples)
+            angles = self.generate_angles(0.01, 0.01, 0.01, pose, angle_set, samples)
 
             for angle_set in angles:
                 dataset = np.concatenate((dataset, np.concatenate((angle_set, point)).reshape(1, len(self.fieldnames))), axis=0)
@@ -317,11 +353,29 @@ class HayatiModel:
         y = a2 * z + b2
 
         return np.array([x, y, z], dtype='float')
+    
+    def optimal_random_dataset(self, samples, iterations):
+        best_cond = 10**10
+        params_number = 0
+        best_dataset = None
+        for _ in range(iterations):
+            dataset = self.generate_random_dataset(samples)
+            jac, _ = self.full_jac(dataset)
+            jac, _ = self.remove_redundant_params(jac)
+            if np.linalg.cond(jac) < best_cond:
+                best_dataset = dataset
+                best_cond = np.linalg.cond(jac)
+                params_number = self.identifiability_mask.sum()
+
+        print(f"Best cond: {best_cond}, params: {params_number}. Save? y/n")
+        ans = input()
+        if ans == 'y':
+            self.write_dataset(best_dataset)
 
     def generate_random_dataset(self, samples):
         dataset = np.zeros((samples, len(self.fieldnames)))
         for i in range(samples):
-            angle_set = (np.random.rand(6) - 0.5) * 2 * pi
+            angle_set = np.array([(random() - 0.5) * fact for fact in JOINT_LIMITS], dtype='float')
             real_pose = self.fk(angle_set, 'real')
             real_position = real_pose[:3, 3]
             real_orientation = self.extract_zyx_euler(real_pose)
@@ -415,7 +469,7 @@ class HayatiModel:
         idx = np.argwhere(np.all(jac[..., :] == 0, axis=0))
 
         if EXCLUDE_BASE_TOOL:
-            idx = np.array(list(set([0, 1, 2, 3, 4, 5, -1, -2, -3, -3, -5, -6]).union(set(idx.flatten()))), dtype='int').reshape(-1, 1)
+            idx = np.array(list(set([0, 1, 2, 3, 4, 5, -1, -2, -3, -4, -5, -6]).union(set(idx.flatten()))), dtype='int').reshape(-1, 1)
         
         jac = np.delete(jac, idx, axis=1)
         for index in idx.flatten():
@@ -454,6 +508,7 @@ class HayatiModel:
         self.estimated_base_params, self.estimated_dh, self.estimated_tool_params = self.unpack_param_vec(vec)
 
     def full_jac(self, dataset):
+        self.init_metrics()
         if self.dataset_type == 'random':
             jac = np.array([], dtype='float').reshape(0, 36)
             error_vec = np.array([], dtype='float')
@@ -470,7 +525,6 @@ class HayatiModel:
             return jac, error_vec
                 
         elif self.dataset_type == 'sphere':
-            dataset = self.generate_sphere_dataset(100)
             jac = np.array([], dtype='float').reshape(0, 36)
             error_vec = np.array([], dtype='float')
             for row in dataset:
@@ -481,6 +535,13 @@ class HayatiModel:
                 error_vec = np.concatenate((error_vec, cur_err))
 
             return jac, error_vec
+        
+        elif self.dataset_type == 'runtime_sphere':
+            error_vec = np.array([], dtype='float')
+            for row in dataset:
+                cur_err = self.inverse_sphere_model(self.direct_sphere_model(row[6:], row[:6]))
+                error_vec = np.concatenate((error_vec, cur_err))
+            return error_vec
 
     def end_of_cycle_action(self):
         val = input()
@@ -498,9 +559,12 @@ class HayatiModel:
 
     def gauss_newton_ls(self):
         dataset = self.read_dataset(self.file)
+        self.init_params()
 
         while True:
-            self.init_metrics()
+            if self.dataset_type == 'sphere':
+                dataset = self.generate_sphere_dataset(100)
+
             jac, error_vec = self.full_jac(dataset)
             self.norm = np.linalg.norm(error_vec)
             new_jac, scale = self.remove_redundant_params(jac)
@@ -511,12 +575,46 @@ class HayatiModel:
             if self.end_of_cycle_action():
                 break
 
+    def pso_runtime_method(self):
+        options = {'c1': 0.5, 'c2': 0.3, 'w':0.9, 'k': 3, 'p': 2}
+        upper_bound = np.array([], dtype='float')
+        lower_bound = np.array([], dtype='float')
+        for row in self.nominal_dh:
+            if row[-1]:
+                upper_bound = np.concatenate((upper_bound, np.array([row[0] + LINEAR_DIST, row[1] + ANGLE_DIST,
+                                                                           row[2] + LINEAR_DIST, row[3] + ANGLE_DIST,], dtype='float')))
+                lower_bound = np.concatenate((lower_bound, np.array([row[0] - LINEAR_DIST, row[1] - ANGLE_DIST,
+                                                                           row[2] - LINEAR_DIST, row[3] - ANGLE_DIST,], dtype='float')))
+            else:
+                upper_bound = np.concatenate((upper_bound, np.array([row[0] + LINEAR_DIST, row[1] + ANGLE_DIST,
+                                                                           row[2] + ANGLE_DIST, row[3] + ANGLE_DIST,], dtype='float')))
+                lower_bound = np.concatenate((lower_bound, np.array([row[0] - LINEAR_DIST, row[1] - ANGLE_DIST,
+                                                                           row[2] - ANGLE_DIST, row[3] - ANGLE_DIST,], dtype='float')))
+                
+        if not EXCLUDE_BASE_TOOL:
+            upper_bound = np.concatenate((upper_bound, np.array([val + TOOL_DIST for val in self.nominal_tool_params], dtype='float')))
+            lower_bound = np.concatenate((lower_bound, np.array([val - TOOL_DIST for val in self.nominal_tool_params], dtype='float')))
+
+        optimizer = single.local_best.LocalBestPSO(n_particles=20, dimensions=upper_bound.size, options=options, bounds=(upper_bound, lower_bound))
+        optimizer.optimize(self.pso_cost, 200)
+
+    def pso_cost(self, args):
+        res = np.zeros(args.shape[0])
+        for index, particle in enumerate(args):
+            particle = np.concatenate((np.zeros(6), particle))
+            if EXCLUDE_BASE_TOOL:
+                particle = np.concatenate((particle, np.zeros(6)))
+            self.estimated_base_params, self.estimated_dh, self.estimated_tool_params = self.unpack_param_vec(particle)
+            batch = self.generate_sphere_dataset(50)
+            error_vec = self.full_jac(batch)
+            res[index] = np.linalg.norm(error_vec)
+        return res
 
 def main():
-    model = HayatiModel(FILENAME, 'sphere')
-    # model.write_dataset(model.generate_random_dataset(300))
+    model = HayatiModel(FILENAME, 'runtime_sphere')
+    # model.optimal_random_dataset(50, 50)
     # model.write_dataset(model.generate_sphere_dataset(300))
-    model.gauss_newton_ls()
+    model.pso_runtime_method()
 
 
 if __name__ == "__main__":
