@@ -180,6 +180,8 @@ class HayatiModel:
         inc = np.concatenate((inc, np.array([(random() - 0.5)*tool_dist for _ in range(6)], dtype='float')))
         self.estimated_base_params, self.estimated_dh, self.estimated_tool_params = self.unpack_param_vec(vec + inc)
 
+        return vec + inc
+
     def z_rot(self, angle: Union[int, float]) -> np.ndarray:
         mat = np.array([[cos(angle), -sin(angle), 0, 0],
                         [sin(angle), cos(angle), 0, 0],
@@ -540,6 +542,7 @@ class HayatiModel:
             error_vec = np.array([], dtype='float')
             for row in dataset:
                 cur_err = self.inverse_sphere_model(self.direct_sphere_model(row[6:], row[:6]))
+                self.calculate_metrics(cur_err)
                 error_vec = np.concatenate((error_vec, cur_err))
             return error_vec
 
@@ -574,9 +577,8 @@ class HayatiModel:
             self.display_metrics()
             if self.end_of_cycle_action():
                 break
-
-    def pso_runtime_method(self):
-        options = {'c1': 0.5, 'c2': 0.3, 'w':0.9, 'k': 3, 'p': 2}
+    
+    def set_bounds(self):
         upper_bound = np.array([], dtype='float')
         lower_bound = np.array([], dtype='float')
         for row in self.nominal_dh:
@@ -594,27 +596,44 @@ class HayatiModel:
         if not EXCLUDE_BASE_TOOL:
             upper_bound = np.concatenate((upper_bound, np.array([val + TOOL_DIST for val in self.nominal_tool_params], dtype='float')))
             lower_bound = np.concatenate((lower_bound, np.array([val - TOOL_DIST for val in self.nominal_tool_params], dtype='float')))
+        
+        return (upper_bound, lower_bound)
 
-        optimizer = single.local_best.LocalBestPSO(n_particles=20, dimensions=upper_bound.size, options=options, bounds=(upper_bound, lower_bound))
+    def pso_runtime_method(self):
+        options = {'c1': 0.5, 'c2': 0.3, 'w':0.9, 'k': 3, 'p': 2}
+        bounds = self.set_bounds()
+        optimizer = single.local_best.LocalBestPSO(n_particles=20, dimensions=bounds[0].size, options=options, bounds=bounds)
         optimizer.optimize(self.pso_cost, 200)
 
     def pso_cost(self, args):
         res = np.zeros(args.shape[0])
         for index, particle in enumerate(args):
-            particle = np.concatenate((np.zeros(6), particle))
-            if EXCLUDE_BASE_TOOL:
-                particle = np.concatenate((particle, np.zeros(6)))
-            self.estimated_base_params, self.estimated_dh, self.estimated_tool_params = self.unpack_param_vec(particle)
-            batch = self.generate_sphere_dataset(50)
-            error_vec = self.full_jac(batch)
-            res[index] = np.linalg.norm(error_vec)
+            res[index] = self.runtime_cost(particle)
         return res
+    
+    def runtime_cost(self, params):
+        params = np.concatenate((np.zeros(6), params))
+        if EXCLUDE_BASE_TOOL:
+            params = np.concatenate((params, np.zeros(6)))
+        self.estimated_base_params, self.estimated_dh, self.estimated_tool_params = self.unpack_param_vec(params)
+        batch = self.generate_sphere_dataset(50)
+        self.norm = np.linalg.norm(self.full_jac(batch))
+        self.display_metrics()
+        return self.norm
+    
+    def runtime_optimize(self):
+        bounds = self.set_bounds()
+        result = minimize(self.runtime_cost, x0=self.init_params()[6:-6], method='Nelder-Mead',
+                          bounds=list(zip(bounds[1], bounds[0])), options={"disp": True, "fatol": 1e-17, "adaptive": True})
+                                                                                                  
+        print(result)
+        
 
 def main():
     model = HayatiModel(FILENAME, 'runtime_sphere')
     # model.optimal_random_dataset(50, 50)
     # model.write_dataset(model.generate_sphere_dataset(300))
-    model.pso_runtime_method()
+    model.runtime_optimize()
 
 
 if __name__ == "__main__":
