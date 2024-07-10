@@ -14,10 +14,12 @@ RADIUS = 0.025
 FIELDNAMES_OPTIONS = {
     "random" : ['q1', 'q2', 'q3', 'q4', 'q5', 'q6', 'px_r', 'py_r', 'pz_r', 'rx_r', 'rx_y', 'rx_z'],
     "sphere" : ['q1', 'q2', 'q3', 'q4', 'q5', 'q6', 'px_n', 'py_n', 'pz_n'],
-    "runtime_sphere" : ['q1', 'q2', 'q3', 'q4', 'q5', 'q6', 'px_n', 'py_n', 'pz_n']
+    "runtime_sphere" : ['q1', 'q2', 'q3', 'q4', 'q5', 'q6', 'px_n', 'py_n', 'pz_n'],
+    "random_base" : ['q1', 'q2', 'q3', 'q4', 'q5', 'q6', 'px_r', 'py_r', 'pz_r', 'rx_r', 'rx_y', 'rx_z'],
 }
 
 TASK_SCALE = np.diag([1, 1, 1, 0, 0, 0])
+
 
 def cross(a:np.ndarray,b:np.ndarray)->np.ndarray:
     return np.cross(a,b)
@@ -28,6 +30,7 @@ class HayatiModel:
         self.optimization_method = config['optimization_method']
         self.fieldnames = FIELDNAMES_OPTIONS[self.dataset_type]
         self.file = config['dataset_file']
+        self.results_file = config["results_file"]
          # DH params: [a, alpha, d/beta, theta_offset, parallel_axis]. Angle beta is used instead of d if axis is nearly parallel to the previous
         self.nominal_dh = config['nominal_dh']
         self.nominal_base_params = config['nominal_base_params']
@@ -56,7 +59,7 @@ class HayatiModel:
         self.bypass_sphere_models = config["bypass_sphere_models"]
         self.samples_number = config["samples_number"]
 
-        if self.dataset_type == "random":
+        if self.dataset_type == "random" or self.dataset_type == "random_base":
             self.measurable_params_mask = np.array([0, 1, 2, 3, 4, 5], dtype='int')
         else:
             self.measurable_params_mask = np.array([0, 1, 2], dtype='int')
@@ -134,10 +137,32 @@ class HayatiModel:
         self.display_metrics()
         input()
               
-    def write_results(self, filename='results.txt'):
-        datastring = str(self.estimated_base_params) + '\n' + str(self.estimated_dh) + '\n' + str(self.estimated_tool_params)
+    def write_results(self, filename='results.json'):
+        tfs = self.get_transforms([0, 0, 0, 0, 0, 0], self.estimated_dh)
+        mcx_params = []
+        offsets = []
+        for index, tf in enumerate(tfs):
+            offset = tf[:3, 3]
+            rotation = self.extract_zyx_euler(tf)
+
+            if index == 0:
+                mcx_params.append([self.estimated_dh[0][0], 0, self.estimated_dh[0][2], 0, 0, pi/2-self.estimated_dh[0][1]])
+            elif index == 1:
+                mcx_params.append([0, 0, self.estimated_dh[1][0], self.estimated_dh[1][1], -self.estimated_dh[1][2], 0])
+            elif index == 2:
+                mcx_params.append([0, 0, self.estimated_dh[2][0], self.estimated_dh[2][1], -self.estimated_dh[2][2], 0])
+            elif index == 3:
+                mcx_params.append([-self.estimated_dh[3][0], self.estimated_dh[3][2], 0, 0, 0, -pi/2-self.estimated_dh[3][1]])
+            elif index == 4:
+                mcx_params.append([self.estimated_dh[4][0], 0, self.estimated_dh[4][2], 0, 0, -pi/2+self.estimated_dh[4][1]])
+            elif index == 5:
+                mcx_params.append([-self.estimated_dh[5][0], self.estimated_dh[5][2], 0, 0, 0, -self.estimated_dh[5][1]])
+            offsets.append(rotation[2] - self.nominal_dh[index][3])
+
+        res_dict = {"estimated_dh": self.estimated_dh, "estimated_base_params": self.estimated_base_params,
+                    "estimated_tool_params": self.estimated_tool_params, "mcx_params": mcx_params, "offsets": offsets}
         with open(filename, 'w') as file:
-            file.write(datastring)
+            json.dump(res_dict, file)
 
     def init_params(self):
         vec = self.pack_param_vec(self.estimated_base_params, self.estimated_dh, self.estimated_tool_params)
@@ -186,6 +211,19 @@ class HayatiModel:
                         [0, 0, 0, 1]],dtype='float')
         return mat
     
+    def euler_trans(self, euler, trans) -> np.ndarray:
+        rx = self.x_rot(euler(0))
+        ry = self.y_rot(euler(1))
+        rz = self.z_rot(euler(2))
+
+        R = rz @ ry @ rx
+        R = R.tolist()
+        R[0].append(trans[0])
+        R[1].append(trans[1])
+        R[2].append(trans[2])
+        R.append([0,0,0,1])
+        return np.array(R)
+    
     def extract_zyx_euler(self, mat: np.ndarray) -> np.ndarray:
         sy = -mat[2, 0]
         cy = sqrt(1 - sy**2)
@@ -216,6 +254,12 @@ class HayatiModel:
                         [         -ca*sb,     sa,           ca*cb,    0],
                         [              0,      0,               0,    1]], dtype='float')
         return mat
+
+    def skew(self, vector: Union[list, np.ndarray]) -> np.ndarray:
+        return np.array([[0, -vector[2], vector[1]],
+                        [vector[2], 0, -vector[0]],
+                        [-vector[1], vector[0], 0]], dtype='float')
+
     
     def get_transforms(self, angles: Union[np.ndarray, list], params: list) -> list:
         tfs = []
@@ -227,8 +271,8 @@ class HayatiModel:
         return tfs
     
     def get_base_tool_tf(self, base_params, tool_params):
-        main_tf = self.trans(base_params[:3]) @ self.z_rot(base_params[3]) @ self.y_rot(base_params[4]) @ self.x_rot(base_params[5])
-        tool = self.trans(tool_params[:3]) @ self.z_rot(tool_params[3]) @ self.y_rot(tool_params[4]) @ self.x_rot(tool_params[5])
+        main_tf = self.z_rot(base_params[3]) @ self.y_rot(base_params[4]) @ self.x_rot(base_params[5]) @ self.trans(base_params[:3])
+        tool = self.z_rot(tool_params[3]) @ self.y_rot(tool_params[4]) @ self.x_rot(tool_params[5]) @ self.trans(tool_params[:3])
         return main_tf, tool
 
     def fk(self, angles: Union[np.ndarray, list], type: str) -> np.ndarray:
@@ -341,6 +385,8 @@ class HayatiModel:
     def generate_dataset(self):
         if self.dataset_type == "random":
             self.optimal_random_dataset(self.samples_number)
+        elif self.dataset_type == "random_base":
+            print("Dataset generation is not supported. Use 'random' type")
         else:
             self.write_dataset(self.generate_sphere_dataset(self.samples_number))
 
@@ -449,8 +495,16 @@ class HayatiModel:
         # Vertical order: [tx, ty, tz, rx, ry, rz]
         
         jac = np.eye(6, len(tfs)*4 + 12)
+
+        first_mat = np.zeros((6, 6))
+        first_mat[:3, :3] = from_base_trans[0][:3, :3]
+        first_mat[:3, 3:6] = -self.skew(from_tool_trans[0][0:3, 3]) @ from_base_trans[0][:3, :3]
+        first_mat[3:6, 3:6] = from_base_trans[0][:3, :3]
+        jac[:, :6] = first_mat
+
         last_mat = np.zeros((6, 6))
         last_mat[:3, :3] = from_base_trans[-1][:3, :3]
+        last_mat[:3, 3:6] = -self.skew(from_base_trans[-2][0:3, 0:3] @ from_tool_trans[-1][0:3, 3]) @ from_base_trans[-1][:3, :3]
         last_mat[3:6, 3:6] = from_base_trans[-1][:3, :3]
         jac[:, (6+(frames_cnt-2)*4):(12+(frames_cnt-2)*4)] = last_mat
 
@@ -499,6 +553,10 @@ class HayatiModel:
         for index in idx.flatten():
             self.identifiability_mask[index] = 0
 
+        if self.dataset_type == "random_base":
+            self.identifiability_mask[:6] = 1
+            self.identifiability_mask[6:] = 0
+
         cond = np.linalg.cond(jac)
         while cond > 100:
             dim = jac.shape[1]
@@ -517,10 +575,10 @@ class HayatiModel:
         return np.concatenate((base, dh.flatten(), tool))
 
     def unpack_param_vec(self, vec):
-        base = vec[:6]
+        base = vec[:6].tolist()
         dh = np.reshape(vec[6:-6], (6, int((vec.size - 12) / 6 )))
         dh = np.concatenate((dh, np.array(self.nominal_dh)[:, 4].reshape(6, 1)), axis=1).tolist()
-        tool = vec[-6:]
+        tool = vec[-6:].tolist()
         return base, dh, tool
 
     def update_params(self, inc, scale):
@@ -541,7 +599,7 @@ class HayatiModel:
                                                                                   self.estimated_dh, self.estimated_tool_params)), axis=0)
                 estimated_pose = self.fk(row[:6], 'estimated')
                 estimated_coordinates = np.concatenate((estimated_pose[:3, 3], self.extract_zyx_euler(estimated_pose)))
-                real_coordinates = np.concatenate((row[6:9], row[9:]))
+                real_coordinates = row[6:]
                 cur_err = real_coordinates[self.measurable_params_mask] - estimated_coordinates[self.measurable_params_mask]
                 self.calculate_metrics(cur_err)                              
                 error_vec = np.concatenate((error_vec, TASK_SCALE @ cur_err), axis=0)
@@ -566,6 +624,22 @@ class HayatiModel:
                 self.calculate_metrics(cur_err)
                 error_vec = np.concatenate((error_vec, cur_err))
             return error_vec
+        
+        elif self.dataset_type == 'random_base':
+            jac = np.array([], dtype='float').reshape(0, 36)
+            error_vec = np.array([], dtype='float')
+            base_scale = np.diag([1, 1, 1, 1, 1, 1])
+
+            for row in dataset:
+                jac = np.concatenate((jac, base_scale @ self.calibration_jacobian(row[:6], self.estimated_base_params,
+                                                                                  self.estimated_dh, self.estimated_tool_params)), axis=0)
+                estimated_pose = self.fk(row[:6], 'estimated')
+                estimated_coordinates = np.concatenate((estimated_pose[:3, 3], self.extract_zyx_euler(estimated_pose)))
+                real_coordinates = row[6:]
+                cur_err = real_coordinates[self.measurable_params_mask] - estimated_coordinates[self.measurable_params_mask]
+                self.calculate_metrics(cur_err)                              
+                error_vec = np.concatenate((error_vec, base_scale @ cur_err), axis=0)
+            return jac, error_vec
 
     def end_of_cycle_action(self):
         val = input()
@@ -573,7 +647,7 @@ class HayatiModel:
             new_val = float(val)
         except ValueError:
             if val == 'exit':
-                self.write_results('results.txt')
+                self.write_results(self.results_file)
                 return True
             if val == 'test':
                 self.test_estimated_params()
@@ -584,9 +658,9 @@ class HayatiModel:
         return False
     
     def optimize(self):
-        if (self.dataset_type == "random" or self.dataset_type == "sphere") and self.optimization_method == "gauss_newton":
+        if (self.dataset_type == "random" or self.dataset_type == "sphere" or self.dataset_type == "random_base") and self.optimization_method == "gauss_newton":
             self.gauss_newton_ls()
-        elif (self.dataset_type == "random" or self.dataset_type == "sphere") and self.optimization_method == "levenberg_marquardt":
+        elif (self.dataset_type == "random" or self.dataset_type == "sphere" or self.dataset_type == "random_base") and self.optimization_method == "levenberg_marquardt":
             self.levenberg_marquardt()
         elif self.dataset_type == "runtime_sphere" and self.optimization_method == "pso":
             self.pso_runtime_method()
@@ -594,6 +668,27 @@ class HayatiModel:
             self.runtime_optimize()
         else:
             print("Unknown method")
+
+    def optimize_base(self):
+        dataset = self.read_dataset(self.file)
+        def cost(x):
+            self.init_metrics()
+            error_vec = np.array([], dtype='float')
+            self.estimated_base_params = x
+            for row in dataset:
+                estimated_pose = self.fk(row[:6], 'estimated')
+                estimated_coordinates = np.concatenate((estimated_pose[:3, 3], self.extract_zyx_euler(estimated_pose)))
+                real_coordinates = row[6:]
+                cur_err = real_coordinates[self.measurable_params_mask] - estimated_coordinates[self.measurable_params_mask]
+                self.calculate_metrics(cur_err)                              
+                error_vec = np.concatenate((error_vec, cur_err), axis=0)
+            self.norm = np.linalg.norm(error_vec)
+            self.display_metrics()
+            return self.norm
+        result = minimize(cost, x0=np.array(self.nominal_base_params), method='Nelder-Mead')
+        print(result)
+        return result.x, result.fun
+
 
     def gauss_newton_ls(self):
         dataset = self.read_dataset(self.file)
@@ -632,6 +727,7 @@ class HayatiModel:
             
             new_jac, scale = self.remove_redundant_params(jac)
             inc = np.linalg.inv((new_jac.T @ new_jac + self.lm_koef * np.eye(new_jac.shape[1], new_jac.shape[1]))) @ new_jac.T @ error_vec
+            # print(inc)
             self.update_params(inc, scale)
             self.display_metrics()
             if self.end_of_cycle_action():
@@ -694,6 +790,8 @@ def main(args):
     if args.generate:
         model.generate_dataset()
     model.optimize()
+
+    # model.optimize_base()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
