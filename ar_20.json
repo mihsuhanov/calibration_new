@@ -9,7 +9,8 @@
                       [-0.7, 0.5, 0.4],
                       [0.34, 0.4, 0.3],
                       [0.34, 0.8, -0.3]],
-    "joint_limits": [3.14, 1.04, 2.26, 3.14, 1.91, 3.14],
+    "joint_limits_actual": [3.14, 1.04, 2.26, 3.14, 1.91, 3.14],
+    "joint_limits_circle": [3.14, 1.57, 2.26, 3.14, 1.91, 3.14],
     "exclude_base_tool": false,
     "bypass_sphere_models": true,
     "angle_distribution_interval": 0.03,
@@ -26,7 +27,7 @@
                    [0,    -1.5708,  0.13,   0,       0], 
                    [0,     0,       0.069,  0,       0]],
                    
-    "nominal_base_params": [1.28, 0.789, 0.66, 1.2, 0.765, 1.57],
+    "nominal_base_params": [1.28, 0.789, 0.66, 1.25156, 0.7641, 1.53738],
     "nominal_tool_params": [0, 0, 0, 0, 0, 1.5708],
 
     "real_dh": [[0.002,   1.56,    0.192,    1.56,    0], 
