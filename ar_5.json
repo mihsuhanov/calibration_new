@@ -33,16 +33,16 @@
   ],
   "cartesian_limits": [
     [
-      -10,
-      10
+      -0.27,
+      0.27
     ],
     [
-      -10,
-      10
+      0.1,
+      0.5
     ],
     [
-      -10,
-      10
+      0.2,
+      0.6
     ]
   ],
   "nominal_dh": [
@@ -170,7 +170,7 @@
     1.3712003613502324,
     2.6004491243440655
   ],
-  "max_z_angle": 0.52,
+  "max_z_angle": 3.14,
   "optimization_method": "levenberg_marquardt",
   "dataset_file": "data_7.csv",
   "base_circles_dataset_file": "base_circles_7.csv",

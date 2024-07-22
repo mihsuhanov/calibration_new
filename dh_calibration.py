@@ -18,6 +18,7 @@ FIELDNAMES_OPTIONS = {
 }
 
 TASK_SCALE = np.diag([1, 1, 1, 0, 0, 0])
+BIG_NUMBER = 10e300
 
 
 def cross(a:np.ndarray,b:np.ndarray)->np.ndarray:
@@ -74,7 +75,7 @@ class HayatiModel:
         self.cond = None
         self.norm = None
         self.max_x_error = self.max_y_error = self.max_z_error = self.max_dist_error = 0
-        self.min_x_error = self.min_y_error = self.min_z_error = self.min_dist_error = 999999
+        self.min_x_error = self.min_y_error = self.min_z_error = self.min_dist_error = BIG_NUMBER
 
     def calculate_metrics(self, err):
         dist_error = np.linalg.norm(err[:3])
@@ -114,13 +115,15 @@ class HayatiModel:
         print("DH: ", *self.estimated_dh, sep='\n',)
 
     def test_estimated_params(self, samples=300):
+        backup_norm = self.norm
         print(f"\nTesting estimated params on {samples} random samples\n")
         self.init_metrics()
-        dataset = self.generate_random_dataset(samples)
+        dataset = self.generate_random_dataset(samples, disable_limits=True)
         for row in dataset:
-            estimated_position = self.fk(row[:6], 'estimated')
+            estimated_position = self.fk(row[:6], 'estimated')[:3, 3]
             self.calculate_metrics(row[6:9] - estimated_position)
         self.display_metrics()
+        self.norm = backup_norm
         input()
 
     def draw_plot(self, dataset):
@@ -284,22 +287,29 @@ class HayatiModel:
         return np.concatenate((self.make_circle(samples, 5, [0, 0, 1.57, 0, 0, 0]),
                                self.make_circle(samples, 6, [0, 0, 1.57, 0, -1.57, 0])), axis=0)
     
+    def satisfies_cartesian_limits(self, pose):
+        position = pose[:3, 3]
+        z_angle = acos(pose[:3, 2] @ [0, 0, 1])
+        return (position[0] > self.cartesian_limits[0][0] and position[0] < self.cartesian_limits[0][1] and \
+                position[1] > self.cartesian_limits[1][0] and position[1] < self.cartesian_limits[1][1] and \
+                position[2] > self.cartesian_limits[2][0] and position[2] < self.cartesian_limits[2][1] and \
+                abs(z_angle) < self.max_z_angle)
     
     def optimal_random_dataset(self, samples):
         backup_base = self.nominal_base_params.copy()
         self.nominal_base_params = np.zeros(6)
 
-        best_value = 10**10
-        prev_best_value = 10**11
+        best_value = BIG_NUMBER
+        prev_best_value = BIG_NUMBER * 10
         dataset = self.generate_random_dataset(samples)
 
-        # while prev_best_value - best_value > 0.00001:
-        #     dataset, val = self.conf_plus(dataset)
-        #     print(val)
-        #     dataset, val = self.conf_minus(dataset)
-        #     print(val)
-        #     prev_best_value = best_value
-        #     best_value = val
+        while prev_best_value - best_value > 0.01:
+            dataset, val = self.conf_plus(dataset)
+            print(val)
+            dataset, val = self.conf_minus(dataset)
+            print(val)
+            prev_best_value = best_value
+            best_value = val
 
         self.nominal_base_params = backup_base
         return dataset
@@ -307,16 +317,19 @@ class HayatiModel:
     def conf_plus(self, dataset):
         def cost(angle_set):
             nominal_pose = self.fk(angle_set, 'nominal')
-            nominal_position = nominal_pose[:3, 3]
-            nominal_orientation = self.extract_zyx_euler(nominal_pose[:3, :3])
-            string = np.concatenate((angle_set, nominal_position, nominal_orientation))
-            new_dataset = np.concatenate((dataset, string.reshape(1, -1)), axis=0)
-            jac, _ = self.full_jac(new_dataset)
-            jac, _ = self.remove_redundant_params(jac)
-            cond = np.linalg.cond(jac)
-            params_number = self.identifiability_mask.sum()
-            return cond + 100/params_number
-        result = minimize(cost, x0=[self.joint_limits_general_l[axis] + random() * (self.joint_limits_general_h[axis] - self.joint_limits_general_l[axis]) for axis in range(6)], method='Nelder-Mead',
+            if self.satisfies_cartesian_limits(nominal_pose):
+                nominal_position = nominal_pose[:3, 3]
+                nominal_orientation = self.extract_zyx_euler(nominal_pose[:3, :3])
+                string = np.concatenate((angle_set, nominal_position, nominal_orientation))
+                new_dataset = np.concatenate((dataset, string.reshape(1, -1)), axis=0)
+                jac, _ = self.full_jac(new_dataset)
+                jac, _ = self.remove_redundant_params(jac)
+                cond = np.linalg.cond(jac)
+                params_number = self.identifiability_mask.sum()
+                return cond + 100/params_number
+            return BIG_NUMBER
+        
+        result = minimize(cost, x0=dataset[0, :6], method='Nelder-Mead',
                           bounds=list(zip(np.array(self.joint_limits_general_l), np.array(self.joint_limits_general_h))), options={"maxiter": 150})
         
         real_pose = self.fk(result.x, 'real')
@@ -329,7 +342,7 @@ class HayatiModel:
     
     def conf_minus(self, dataset):
         index = 0
-        min_cost = 100000
+        min_cost = BIG_NUMBER
         for row in range(dataset.shape[0]):
             new_dataset = np.delete(dataset, row, axis=0)
             jac, _ = self.full_jac(new_dataset)
@@ -342,29 +355,21 @@ class HayatiModel:
                 index = row
         return np.delete(dataset, index, axis=0), min_cost
 
-    def generate_random_dataset(self, samples):
+    def generate_random_dataset(self, samples, disable_limits=False):
         dataset = np.zeros((samples, len(FIELDNAMES_OPTIONS["random"])))
         for i in range(samples):
-            dataset[i] = self.make_random_sample()
+            dataset[i] = self.make_random_sample(disable_limits)
         return dataset
     
-    def make_random_sample(self):
+    def make_random_sample(self, disable_limits):
         while True:
             angle_set = np.array([self.joint_limits_general_l[axis] + random() * (self.joint_limits_general_h[axis] - self.joint_limits_general_l[axis]) for axis in range(6)], dtype='float')
             nominal_pose = self.fk(angle_set, 'nominal')
-            nominal_position = nominal_pose[:3, 3]
-            z_angle = acos(nominal_pose[:3, 2] @ [0, 0, 1])
-
-            if nominal_position[0] > self.cartesian_limits[0][0] and nominal_position[0] < self.cartesian_limits[0][1] and \
-                nominal_position[1] > self.cartesian_limits[1][0] and nominal_position[1] < self.cartesian_limits[1][1] and \
-                nominal_position[2] > self.cartesian_limits[2][0] and nominal_position[2] < self.cartesian_limits[2][1] and \
-                abs(z_angle) < self.max_z_angle:
+            if self.satisfies_cartesian_limits(nominal_pose) or disable_limits:
                 real_pose = self.fk(angle_set, 'real')
                 real_position = real_pose[:3, 3]
                 real_orientation = self.extract_zyx_euler(real_pose[:3, :3])
-                print("success")
                 return np.concatenate((angle_set, real_position, real_orientation), axis=0)
-
 
     def write_dataset(self, dataset: np.ndarray, filename: str, fieldnames: list[str]):
         with open(filename, 'w', newline='') as csvfile:
@@ -556,21 +561,21 @@ class HayatiModel:
             
         return jac, error_vec
         
-    def end_of_cycle_action(self, dataset):
-        val = input()
-        try:
-            new_val = float(val)
-        except ValueError:
-            if val == 'exit':
-                self.write_results(self.results_file)
-                return True
-            if val == 'test':
-                self.test_estimated_params()
-            if val == "plot":
-                self.draw_plot(dataset)
-        else:
-            self.koef = new_val
-        return False
+    # def end_of_cycle_action(self, dataset):
+    #     val = input()
+    #     try:
+    #         new_val = float(val)
+    #     except ValueError:
+    #         if val == 'exit':
+    #             self.write_results(self.results_file)
+    #             return True
+    #         if val == 'test':
+    #             self.test_estimated_params()
+    #         if val == "plot":
+    #             self.draw_plot(dataset)
+    #     else:
+    #         self.koef = new_val
+    #     return False
 
     def remove_outliers(self, dataset, threshold):
         data_new = np.array([], dtype='float').reshape(0, dataset.shape[1])
@@ -728,8 +733,6 @@ class HayatiModel:
         # req_dataset = dataset[dataset[:, -1] == 6][3:]
         # self.draw_plot(req_dataset)
 
-
-    
 def main(args):
     with open(args.config, 'r') as config_file:
         config = json.load(config_file)
@@ -737,7 +740,7 @@ def main(args):
     if args.generate:
         model.generate_dataset()
 
-    model.generate_dataset()
+    # model.generate_dataset()
     model.calibrate_base()
     model.calibrate_tool()
     model.optimize()
