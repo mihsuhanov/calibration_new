@@ -12,7 +12,6 @@ import matplotlib.pyplot as plt
 
 np.set_printoptions(suppress=True, threshold=np.inf, precision=5)
 
-RADIUS = 0.025
 FIELDNAMES_OPTIONS = {
     "random" : ['q1', 'q2', 'q3', 'q4', 'q5', 'q6', 'px_r', 'py_r', 'pz_r', 'rx_r', 'ry_r', 'rz_r'],
     "circles": ['q1', 'q2', 'q3', 'q4', 'q5', 'q6', 'px_r', 'py_r', 'pz_r', 'joint'],
@@ -53,8 +52,13 @@ class HayatiModel:
         self.joint_limits_circle_h = config["joint_limits_circle_h"]
         self.joint_limits_circle_l = config["joint_limits_circle_l"]
 
+        self.cartesian_limits = config["cartesian_limits"]
+        self.max_z_angle = config["max_z_angle"]
+        
         self.general_samples_number = config["general_samples_number"]
         self.circle_samples_number = config["circle_samples_number"]
+
+        self.zero_tracker_position = config["zero_tracker_position"]
 
         self.measurable_params_mask = np.array([0, 1, 2, 3, 4, 5], dtype='int')
 
@@ -118,6 +122,19 @@ class HayatiModel:
             self.calculate_metrics(row[6:9] - estimated_position)
         self.display_metrics()
         input()
+
+    def draw_plot(self, dataset):
+        fig = plt.figure()
+        ax = fig.add_subplot(projection='3d')
+        for row in dataset:
+            estimated_pos = self.fk(row[:6], 'estimated')[:3, 3]
+            ax.scatter(estimated_pos[0], estimated_pos[1], estimated_pos[2], marker="o")
+            ax.scatter(row[6], row[7], row[8], marker="x")
+
+        ax.set_xlabel('X Label')
+        ax.set_ylabel('Y Label')
+        ax.set_zlabel('Z Label')
+        plt.show()
 
     # Math and kinematic modeling routines
     def x_rot(self, angle: Union[int, float]) -> np.ndarray:
@@ -189,8 +206,8 @@ class HayatiModel:
 
     def skew(self, vector: Union[list, np.ndarray]) -> np.ndarray:
         return np.array([[0, -vector[2], vector[1]],
-                        [vector[2], 0, -vector[0]],
-                        [-vector[1], vector[0], 0]], dtype='float')
+                         [vector[2], 0, -vector[0]],
+                         [-vector[1], vector[0], 0]], dtype='float')
 
     
     def get_transforms(self, angles: Union[np.ndarray, list], params: list) -> list:
@@ -260,15 +277,18 @@ class HayatiModel:
         return dataset
     
     def generate_base_circles_dataset(self, samples):
-        return np.concatenate((self.make_circle(samples, 1, [0, 0, 1.57, 0, 1.57, 0]),
+        return np.concatenate((self.make_circle(samples, 1, [0, 0, 1.57, 0, -1.57, 0]),
                                self.make_circle(samples, 2, [0, 0, 0, 0, 0, 0])), axis=0)
     
     def generate_tool_circles_dataset(self, samples):
         return np.concatenate((self.make_circle(samples, 5, [0, 0, 1.57, 0, 0, 0]),
-                               self.make_circle(samples, 6, [0, 0, 1.57, 0, 0, 0])), axis=0)
+                               self.make_circle(samples, 6, [0, 0, 1.57, 0, -1.57, 0])), axis=0)
     
     
     def optimal_random_dataset(self, samples):
+        backup_base = self.nominal_base_params.copy()
+        self.nominal_base_params = np.zeros(6)
+
         best_value = 10**10
         prev_best_value = 10**11
         dataset = self.generate_random_dataset(samples)
@@ -281,14 +301,15 @@ class HayatiModel:
         #     prev_best_value = best_value
         #     best_value = val
 
+        self.nominal_base_params = backup_base
         return dataset
 
     def conf_plus(self, dataset):
         def cost(angle_set):
-            real_pose = self.fk(angle_set, 'real')
-            real_position = real_pose[:3, 3]
-            real_orientation = self.extract_zyx_euler(real_pose[:3, :3])
-            string = np.concatenate((angle_set, real_position, real_orientation))
+            nominal_pose = self.fk(angle_set, 'nominal')
+            nominal_position = nominal_pose[:3, 3]
+            nominal_orientation = self.extract_zyx_euler(nominal_pose[:3, :3])
+            string = np.concatenate((angle_set, nominal_position, nominal_orientation))
             new_dataset = np.concatenate((dataset, string.reshape(1, -1)), axis=0)
             jac, _ = self.full_jac(new_dataset)
             jac, _ = self.remove_redundant_params(jac)
@@ -296,7 +317,7 @@ class HayatiModel:
             params_number = self.identifiability_mask.sum()
             return cond + 100/params_number
         result = minimize(cost, x0=[self.joint_limits_general_l[axis] + random() * (self.joint_limits_general_h[axis] - self.joint_limits_general_l[axis]) for axis in range(6)], method='Nelder-Mead',
-                          bounds=list(zip(np.array(self.joint_limits_general_l), np.array(self.joint_limits_general_h))), options={"maxiter": 200})
+                          bounds=list(zip(np.array(self.joint_limits_general_l), np.array(self.joint_limits_general_h))), options={"maxiter": 150})
         
         real_pose = self.fk(result.x, 'real')
         real_position = real_pose[:3, 3]
@@ -324,12 +345,26 @@ class HayatiModel:
     def generate_random_dataset(self, samples):
         dataset = np.zeros((samples, len(FIELDNAMES_OPTIONS["random"])))
         for i in range(samples):
-            angle_set = np.array([self.joint_limits_general_l[axis] + random() * (self.joint_limits_general_h[axis] - self.joint_limits_general_l[axis]) for axis in range(6)], dtype='float')
-            real_pose = self.fk(angle_set, 'real')
-            real_position = real_pose[:3, 3]
-            real_orientation = self.extract_zyx_euler(real_pose[:3, :3])
-            dataset[i] = np.concatenate((angle_set, real_position, real_orientation))
+            dataset[i] = self.make_random_sample()
         return dataset
+    
+    def make_random_sample(self):
+        while True:
+            angle_set = np.array([self.joint_limits_general_l[axis] + random() * (self.joint_limits_general_h[axis] - self.joint_limits_general_l[axis]) for axis in range(6)], dtype='float')
+            nominal_pose = self.fk(angle_set, 'nominal')
+            nominal_position = nominal_pose[:3, 3]
+            z_angle = acos(nominal_pose[:3, 2] @ [0, 0, 1])
+
+            if nominal_position[0] > self.cartesian_limits[0][0] and nominal_position[0] < self.cartesian_limits[0][1] and \
+                nominal_position[1] > self.cartesian_limits[1][0] and nominal_position[1] < self.cartesian_limits[1][1] and \
+                nominal_position[2] > self.cartesian_limits[2][0] and nominal_position[2] < self.cartesian_limits[2][1] and \
+                abs(z_angle) < self.max_z_angle:
+                real_pose = self.fk(angle_set, 'real')
+                real_position = real_pose[:3, 3]
+                real_orientation = self.extract_zyx_euler(real_pose[:3, :3])
+                print("success")
+                return np.concatenate((angle_set, real_position, real_orientation), axis=0)
+
 
     def write_dataset(self, dataset: np.ndarray, filename: str, fieldnames: list[str]):
         with open(filename, 'w', newline='') as csvfile:
@@ -441,14 +476,26 @@ class HayatiModel:
         diag[diag < 10**(-8)] = 1
         return np.linalg.inv(np.diag(diag))
 
-    def remove_redundant_params(self, jac: np.ndarray) -> np.ndarray:
+    def remove_redundant_params(self, jac: np.ndarray, base_only=False, offsets_only=False) -> np.ndarray:
+        if base_only:
+            self.identifiability_mask = np.zeros(36, dtype='int')
+            self.identifiability_mask[:3] = 1
+            return jac[:, :3], np.eye(36, 36)
+        
+        if offsets_only:
+            self.identifiability_mask = np.zeros(36, dtype='int')
+            ind = [9, 13, 17, 21, 25, 29]
+            self.identifiability_mask[ind] = 1
+            return jac[:, ind], np.eye(36, 36)
+
         self.identifiability_mask = np.ones(36, dtype='int')
         scale = self.scaling_matrix(jac)
         jac = jac @ scale
         idx = np.argwhere(np.all(jac[..., :] == 0, axis=0))
 
         # idx = np.array(list(set([0, 1, 2, 3, 4, 5, -1, -2, -3, -4, -5, -6]).union(set(idx.flatten()))), dtype='int').reshape(-1, 1)
-
+        idx = np.array(list(set([-1, -2, -3, -4, -5, -6]).union(set(idx.flatten()))), dtype='int').reshape(-1, 1)
+        
         jac = np.delete(jac, idx, axis=1)
         for index in idx.flatten():
             self.identifiability_mask[index] = 0
@@ -484,7 +531,7 @@ class HayatiModel:
         vec += mapped_inc * self.koef
         self.estimated_base_params, self.estimated_dh, self.estimated_tool_params = self.unpack_param_vec(vec)
 
-    def full_jac(self, dataset):
+    def full_jac(self, dataset, base_only=False, offsets_only=False):
         self.init_metrics()
         jac = np.array([], dtype='float').reshape(0, 36)
         error_vec = np.array([], dtype='float')
@@ -493,16 +540,23 @@ class HayatiModel:
             estimated_coordinates = np.concatenate((estimated_pose[:3, 3], self.extract_zyx_euler(estimated_pose[:3, :3])))
             real_coordinates = row[6:]
             cur_err = real_coordinates[self.measurable_params_mask] - estimated_coordinates[self.measurable_params_mask]
-            if np.linalg.norm(cur_err) > 3:
-                continue
+            # if abs(cur_err[0]) > OUTLIER_THRESHOLD or abs(cur_err[1]) > OUTLIER_THRESHOLD or abs(cur_err[2]) > OUTLIER_THRESHOLD:
+            #     continue
+            if base_only or offsets_only:
+                jac = np.concatenate((jac, self.calibration_jacobian(row[:6], self.estimated_base_params,
+                                                                     self.estimated_dh, self.estimated_tool_params)), axis=0)
+                error_vec = np.concatenate((error_vec, cur_err), axis=0)
 
-            jac = np.concatenate((jac, TASK_SCALE @ self.calibration_jacobian(row[:6], self.estimated_base_params,
-                                                                                self.estimated_dh, self.estimated_tool_params)), axis=0)
+            else:
+                jac = np.concatenate((jac, TASK_SCALE @ self.calibration_jacobian(row[:6], self.estimated_base_params,
+                                                                                    self.estimated_dh, self.estimated_tool_params)), axis=0)
+                error_vec = np.concatenate((error_vec, TASK_SCALE @ cur_err), axis=0)
+
             self.calculate_metrics(cur_err)                              
-            error_vec = np.concatenate((error_vec, TASK_SCALE @ cur_err), axis=0)
+            
         return jac, error_vec
         
-    def end_of_cycle_action(self):
+    def end_of_cycle_action(self, dataset):
         val = input()
         try:
             new_val = float(val)
@@ -512,19 +566,34 @@ class HayatiModel:
                 return True
             if val == 'test':
                 self.test_estimated_params()
+            if val == "plot":
+                self.draw_plot(dataset)
         else:
             self.koef = new_val
         return False
 
+    def remove_outliers(self, dataset, threshold):
+        data_new = np.array([], dtype='float').reshape(0, dataset.shape[1])
+        for row in dataset:
+            estimated_pose = self.fk(row[:6], 'estimated')
+            estimated_coordinates = np.concatenate((estimated_pose[:3, 3], self.extract_zyx_euler(estimated_pose[:3, :3])))
+            real_coordinates = row[6:]
+            cur_err = real_coordinates[self.measurable_params_mask] - estimated_coordinates[self.measurable_params_mask]
+            if abs(cur_err[0]) < threshold and abs(cur_err[1]) < threshold and abs(cur_err[2]) < threshold:
+                data_new = np.concatenate((data_new, row.reshape(1, -1)), axis=0)
+        return data_new
+
     def optimize(self):
+        self.measurable_params_mask = np.array([0, 1, 2, 3, 4, 5], dtype='int')
         dataset = self.read_dataset(self.dataset_file, FIELDNAMES_OPTIONS["random"])
         while self.norm > 0.001:
             jac, error_vec = self.full_jac(dataset)
             self.norm = np.linalg.norm(error_vec)
             # print(error_vec)
-            if self.norm > self.prev_norm and self.optimization_method == "levenberg_marquardt":
+            if self.norm > self.prev_norm and self.optimization_method == "levenberg_marquardt" and self.lm_koef < 1e5:
                 self.lm_koef *= 10
-            else: self.lm_koef /= 10
+            elif self.norm < self.prev_norm and self.optimization_method == "levenberg_marquardt" and self.lm_koef > 1e-10:
+                self.lm_koef /= 10
             self.prev_norm = self.norm
 
             new_jac, scale = self.remove_redundant_params(jac)
@@ -537,11 +606,29 @@ class HayatiModel:
             
             self.update_params(inc, scale)
             self.display_metrics()
-            if self.end_of_cycle_action():
-                break
+            val = input()
+            try:
+                new_val = float(val)
+            except ValueError:
+                if val == 'exit':
+                    self.write_results(self.results_file)
+                    return
+                if val == 'test':
+                    self.test_estimated_params()
+                if val == "plot":
+                    self.draw_plot(dataset)
+                if val == "tool":
+                    tool_dataset = self.read_dataset(self.tool_circles_dataset_file, FIELDNAMES_OPTIONS["circles"])
+                    self.draw_plot(tool_dataset)
+                if val == "rm":
+                    threshold = float(input())
+                    dataset = self.remove_outliers(dataset, threshold)
+            else:
+                self.koef = new_val
+
 
     def plane_and_circle(self, dataset, axis):
-        req_dataset = dataset[dataset[:, -1] == axis]
+        req_dataset = dataset[dataset[:, -1] == axis][9:]
         vectors = req_dataset[:, 6:9]
         regressor = np.hstack((req_dataset[:, 7:9], np.ones(req_dataset.shape[0]).reshape(-1, 1)))
         x = req_dataset[:, 6].reshape(-1, 1)
@@ -572,7 +659,11 @@ class HayatiModel:
         return prod / np.linalg.norm(prod)
 
     def calibrate_base(self):
+        self.measurable_params_mask = np.array([0, 1, 2], dtype='int')
         dataset = self.read_dataset(self.base_circles_dataset_file, FIELDNAMES_OPTIONS["circles"])
+        req_dataset = dataset[dataset[:, -1] == 1][3:]
+        self.draw_plot(req_dataset)
+
         first_plane, _ = self.plane_and_circle(dataset, 1)
         second_plane, _ = self.plane_and_circle(dataset, 2)
         z = np.array([1, -first_plane[0], -first_plane[1]], dtype='float') / np.linalg.norm([1, -first_plane[0], -first_plane[1]])
@@ -580,7 +671,38 @@ class HayatiModel:
         x = cross(y, z)
         rot = np.array([x, y, z], dtype='float')
         self.estimated_base_params[3:] = self.extract_zyx_euler(rot.T)
-        # print(self.estimated_base_params)
+        print(self.estimated_base_params[3:])
+        
+        while self.norm > 0.001:
+            jac, error_vec = self.full_jac(dataset, True)
+            self.norm = np.linalg.norm(error_vec)
+            # print(error_vec)
+            if self.norm > self.prev_norm and self.optimization_method == "levenberg_marquardt" and self.lm_koef < 1e5:
+                self.lm_koef *= 10
+            elif self.norm < self.prev_norm and self.optimization_method == "levenberg_marquardt" and self.lm_koef > 1e-10:
+                self.lm_koef /= 10
+            self.prev_norm = self.norm
+
+            new_jac, scale = self.remove_redundant_params(jac, True)
+            if self.optimization_method == "gauss_newton":
+                inc = lsq_linear(new_jac, error_vec).x
+            elif self.optimization_method == "levenberg_marquardt":
+                inc = np.linalg.inv((new_jac.T @ new_jac + self.lm_koef * np.eye(new_jac.shape[1], new_jac.shape[1]))) @ new_jac.T @ error_vec
+            else:
+                return
+            
+            self.update_params(inc, scale)
+            self.display_metrics()
+            val = input()
+            try:
+                new_val = float(val)
+            except ValueError:
+                if val == 'exit':
+                    return
+                if val == "plot":
+                    self.draw_plot(dataset)
+            else:
+                self.koef = new_val
 
     def calibrate_tool(self):
         dataset = self.read_dataset(self.tool_circles_dataset_file, FIELDNAMES_OPTIONS["circles"])
@@ -595,7 +717,7 @@ class HayatiModel:
         mutual_moment = vector_2 @ cross(point_1, vector_1) + vector_1 @ cross(point_2, vector_2)
         axis = -copysign(1, mutual_moment) * cross(vector_1, vector_2) / np.linalg.norm(cross(vector_1, vector_2))
 
-        alpha_5 = atan2(np.linalg.norm(axis), vector_1 @ vector_2) - pi
+        alpha_5 = -atan2(np.linalg.norm(axis), vector_1 @ vector_2)
         a_5 = (point_1 - point_2) @ axis
 
         axis_5_params = [a_5, alpha_5, self.estimated_dh[4][2], self.estimated_dh[4][3], self.estimated_dh[4][4]]
@@ -603,6 +725,9 @@ class HayatiModel:
 
         self.estimated_dh[4] = axis_5_params
         self.estimated_dh[5] = axis_6_params
+        # req_dataset = dataset[dataset[:, -1] == 6][3:]
+        # self.draw_plot(req_dataset)
+
 
     
 def main(args):
@@ -612,21 +737,7 @@ def main(args):
     if args.generate:
         model.generate_dataset()
 
-    # dataset = model.read_dataset(model.tool_circles_dataset_file, ['q1', 'q2', 'q3', 'q4', 'q5', 'q6', 'px_r', 'py_r', 'pz_r'])
-    # dataset = model.read_dataset(model.tool_circles_dataset_file, FIELDNAMES_OPTIONS["circles"])
-    # fig = plt.figure()
-    # ax = fig.add_subplot(projection='3d')
-
-    # for row in dataset:
-    #     estimated_pos = model.fk(row[:6], 'nominal')[:3, 3]
-    #     # ax.scatter(estimated_pos[0], estimated_pos[1], estimated_pos[2], marker="o")
-    #     ax.scatter(row[8], row[7], row[6], marker="x")
-
-    # ax.set_xlabel('X Label')
-    # ax.set_ylabel('Y Label')
-    # ax.set_zlabel('Z Label')
-    # plt.show()
-    # model.generate_dataset()
+    model.generate_dataset()
     model.calibrate_base()
     model.calibrate_tool()
     model.optimize()
@@ -634,7 +745,7 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("-c", "--config", help="Name of .json configuration file. Default: ar_20.json", default="ar_20.json")
+    parser.add_argument("-c", "--config", help="Name of .json configuration file. Default: ar_5.json", default="ar_5.json")
     parser.add_argument("-g", "--generate", help="Generate dataset for selected method. Default: false", type=bool, default=False)
     args = parser.parse_args()
     main(args)
