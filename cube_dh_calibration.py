@@ -13,8 +13,7 @@ import matplotlib.pyplot as plt
 np.set_printoptions(suppress=True, threshold=np.inf, precision=5)
 
 FIELDNAMES_OPTIONS = {
-    "random" : ['q1', 'q2', 'q3', 'q4', 'q5', 'q6', 'px_r', 'py_r', 'pz_r', 'rx_r', 'ry_r', 'rz_r'],
-    "circles": ['q1', 'q2', 'q3', 'q4', 'q5', 'q6', 'px_r', 'py_r', 'pz_r', 'joint'],
+    "cube" : ['q1', 'q2', 'q3', 'q4', 'q5', 'q6', 'plane'],
 }
 
 TASK_SCALE = np.diag([1, 1, 1, 0, 0, 0])
