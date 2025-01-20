@@ -35,7 +35,8 @@ class MoveRobotService():
             return
         self.robot = RobotCommand(self.req, self.motorcortex_types)
         self.joint_subscription = self.sub.subscribe(
-                ['root/ManipulatorControl/fkActualToolCoords/jointPositions'], 'group1', 1)
+                # ['root/ManipulatorControl/fkActualToolCoords/jointPositions'], 'group1', 1)
+                ['root/ManipulatorControl/jointPositionsActual'], 'group1', 1)
 
         if self.robot.engage():
             print('Robot is at Engage')
@@ -46,18 +47,20 @@ class MoveRobotService():
 
     def move_robot(self, angles):
         print(angles)
-        self.robot.moveToPoint(angles, 0.25, 1.0)
+        self.robot.moveToPoint(angles, 0.1, 1.0)
         joint_params = self.joint_subscription.read()
         joint_pos_value = joint_params[0].value
         return joint_pos_value
     
 
 def write_dataset(dataset: np.ndarray, filename: str, fieldnames: list[str]):
+        print("Writing data")
         with open(filename, 'w', newline='') as csvfile:
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
             writer.writeheader()
             for row in dataset:
                 writer.writerow({name: row[index] for index, name in enumerate(fieldnames)})
+        print("Written dataset")
         
 def read_dataset(filename: str, fieldnames: list[str]) -> Union[np.ndarray, np.ndarray]:
     dataset = np.array([], dtype='float').reshape(0, len(fieldnames))
@@ -67,12 +70,18 @@ def read_dataset(filename: str, fieldnames: list[str]) -> Union[np.ndarray, np.n
             dataset = np.concatenate((dataset, np.array([float(row[field]) for field in fieldnames]).reshape(1, -1)), axis=0)
     return dataset
 
+
 def gather_data(dataset, robot: MoveRobotService):
     for index, row in enumerate(dataset):
         real_angles = np.array(robot.move_robot(row[:6].tolist()))
-        print(real_angles)
-        dataset[index, :6] = real_angles
-        input()
+        try:
+            save = int(input())
+            dataset[index, :6] = np.zeros((1, 6), dtype = 'float')
+            continue
+        except ValueError:
+            dataset[index, :6] = real_angles
+            print(real_angles)
+
 
 def experiment(robot, dataset_file, fieldnames):
     dataset = read_dataset(dataset_file, fieldnames)
@@ -84,13 +93,13 @@ def main(args):
     with open(args.config, 'r') as config_file:
         config = json.load(config_file)
 
-    experiment(robot, config["base_circles_dataset_file"], FIELDNAMES_OPTIONS["circles"])
-    experiment(robot, config["tool_circles_dataset_file"], FIELDNAMES_OPTIONS["circles"])
+    # experiment(robot, config["base_circles_dataset_file"], FIELDNAMES_OPTIONS["circles"])
+    # experiment(robot, config["tool_circles_dataset_file"], FIELDNAMES_OPTIONS["circles"])
     experiment(robot, config["dataset_file"], FIELDNAMES_OPTIONS["random"])
     
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("-c", "--config", help="Name of .json configuration file. Default: ar_5.json", default="ar_5.json")
+    parser.add_argument("-c", "--config", help="Name of .json configuration file. Default: ar_20.json", default="ar_20.json")
     args = parser.parse_args()
     main(args)

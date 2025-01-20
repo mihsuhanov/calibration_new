@@ -8,14 +8,12 @@ class MCX:
     def __init__(self, hostname="192.168.56.101", filename="results.json"):
         self.hostname = hostname
         self.connect()
-        # self.baseOffsets_old = [0, 0, -131072, 0, -131072, 0]
         self.baseSigns = [1, -1, 1, -1, 1, 1]
         self.motors = 6
 
         with open(filename, "r") as file:
             params = json.load(file)
             self.mcx_params = params["mcx_params"]
-            self.mcx_params[0][3] = 0
             self.offsets = params["offsets"]
             self.tool_params = params["estimated_tool_params"]
 

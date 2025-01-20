@@ -52,3 +52,246 @@ Traceback (most recent call last):
   File "/usr/lib/python3.10/concurrent/futures/thread.py", line 167, in submit
     raise RuntimeError('cannot schedule new futures after shutdown')
 RuntimeError: cannot schedule new futures after shutdown
+2024-12-17 11:55:32,505 - pynng.nng - ERROR - Exception raised in pre pipe connect callback <function Subscribe.connect.<locals>.post_remove_cb at 0x77d956ab6ef0>
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.10/dist-packages/pynng/nng.py", line 1301, in _do_callbacks
+    cb(pipe)
+  File "/usr/local/lib/python3.10/dist-packages/motorcortex/subscribe.py", line 76, in post_remove_cb
+    self.__clb.submit(state_update, self.__req, self, self.connectionState())
+  File "/usr/lib/python3.10/concurrent/futures/thread.py", line 167, in submit
+    raise RuntimeError('cannot schedule new futures after shutdown')
+RuntimeError: cannot schedule new futures after shutdown
+2024-12-17 12:32:55,581 - pynng.nng - ERROR - Exception raised in pre pipe connect callback <function Subscribe.connect.<locals>.post_remove_cb at 0x72c1a117aef0>
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.10/dist-packages/pynng/nng.py", line 1301, in _do_callbacks
+    cb(pipe)
+  File "/usr/local/lib/python3.10/dist-packages/motorcortex/subscribe.py", line 76, in post_remove_cb
+    self.__clb.submit(state_update, self.__req, self, self.connectionState())
+  File "/usr/lib/python3.10/concurrent/futures/thread.py", line 167, in submit
+    raise RuntimeError('cannot schedule new futures after shutdown')
+RuntimeError: cannot schedule new futures after shutdown
+2024-12-17 12:42:05,136 - pynng.nng - ERROR - Exception raised in pre pipe connect callback <function Subscribe.connect.<locals>.post_remove_cb at 0x79f07f386ef0>
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.10/dist-packages/pynng/nng.py", line 1301, in _do_callbacks
+    cb(pipe)
+  File "/usr/local/lib/python3.10/dist-packages/motorcortex/subscribe.py", line 76, in post_remove_cb
+    self.__clb.submit(state_update, self.__req, self, self.connectionState())
+  File "/usr/lib/python3.10/concurrent/futures/thread.py", line 167, in submit
+    raise RuntimeError('cannot schedule new futures after shutdown')
+RuntimeError: cannot schedule new futures after shutdown
+2024-12-17 13:07:26,264 - pynng.nng - ERROR - Exception raised in pre pipe connect callback <function Subscribe.connect.<locals>.post_remove_cb at 0x7098996c2ef0>
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.10/dist-packages/pynng/nng.py", line 1301, in _do_callbacks
+    cb(pipe)
+  File "/usr/local/lib/python3.10/dist-packages/motorcortex/subscribe.py", line 76, in post_remove_cb
+    self.__clb.submit(state_update, self.__req, self, self.connectionState())
+  File "/usr/lib/python3.10/concurrent/futures/thread.py", line 167, in submit
+    raise RuntimeError('cannot schedule new futures after shutdown')
+RuntimeError: cannot schedule new futures after shutdown
+2024-12-17 13:33:57,107 - pynng.nng - ERROR - Exception raised in pre pipe connect callback <function Subscribe.connect.<locals>.post_remove_cb at 0x753ef5d82ef0>
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.10/dist-packages/pynng/nng.py", line 1301, in _do_callbacks
+    cb(pipe)
+  File "/usr/local/lib/python3.10/dist-packages/motorcortex/subscribe.py", line 76, in post_remove_cb
+    self.__clb.submit(state_update, self.__req, self, self.connectionState())
+  File "/usr/lib/python3.10/concurrent/futures/thread.py", line 167, in submit
+    raise RuntimeError('cannot schedule new futures after shutdown')
+RuntimeError: cannot schedule new futures after shutdown
+2024-12-17 13:37:17,769 - pynng.nng - ERROR - Exception raised in pre pipe connect callback <function Subscribe.connect.<locals>.post_remove_cb at 0x701eca4beef0>
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.10/dist-packages/pynng/nng.py", line 1301, in _do_callbacks
+    cb(pipe)
+  File "/usr/local/lib/python3.10/dist-packages/motorcortex/subscribe.py", line 76, in post_remove_cb
+    self.__clb.submit(state_update, self.__req, self, self.connectionState())
+  File "/usr/lib/python3.10/concurrent/futures/thread.py", line 167, in submit
+    raise RuntimeError('cannot schedule new futures after shutdown')
+RuntimeError: cannot schedule new futures after shutdown
+2024-12-17 14:21:48,685 - pynng.nng - ERROR - Exception raised in pre pipe connect callback <function Subscribe.connect.<locals>.post_remove_cb at 0x7af9dc582ef0>
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.10/dist-packages/pynng/nng.py", line 1301, in _do_callbacks
+    cb(pipe)
+  File "/usr/local/lib/python3.10/dist-packages/motorcortex/subscribe.py", line 76, in post_remove_cb
+    self.__clb.submit(state_update, self.__req, self, self.connectionState())
+  File "/usr/lib/python3.10/concurrent/futures/thread.py", line 167, in submit
+    raise RuntimeError('cannot schedule new futures after shutdown')
+RuntimeError: cannot schedule new futures after shutdown
+2024-12-18 09:20:35,625 - pynng.nng - ERROR - Exception raised in pre pipe connect callback <function Subscribe.connect.<locals>.post_remove_cb at 0x7b07b8d7eef0>
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.10/dist-packages/pynng/nng.py", line 1301, in _do_callbacks
+    cb(pipe)
+  File "/usr/local/lib/python3.10/dist-packages/motorcortex/subscribe.py", line 76, in post_remove_cb
+    self.__clb.submit(state_update, self.__req, self, self.connectionState())
+  File "/usr/lib/python3.10/concurrent/futures/thread.py", line 167, in submit
+    raise RuntimeError('cannot schedule new futures after shutdown')
+RuntimeError: cannot schedule new futures after shutdown
+2024-12-18 09:28:34,840 - pynng.nng - ERROR - Exception raised in pre pipe connect callback <function Subscribe.connect.<locals>.post_remove_cb at 0x7e70ea8b2ef0>
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.10/dist-packages/pynng/nng.py", line 1301, in _do_callbacks
+    cb(pipe)
+  File "/usr/local/lib/python3.10/dist-packages/motorcortex/subscribe.py", line 76, in post_remove_cb
+    self.__clb.submit(state_update, self.__req, self, self.connectionState())
+  File "/usr/lib/python3.10/concurrent/futures/thread.py", line 167, in submit
+    raise RuntimeError('cannot schedule new futures after shutdown')
+RuntimeError: cannot schedule new futures after shutdown
+2024-12-18 09:38:42,192 - pynng.nng - ERROR - Exception raised in pre pipe connect callback <function Subscribe.connect.<locals>.post_remove_cb at 0x78cb88ebeef0>
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.10/dist-packages/pynng/nng.py", line 1301, in _do_callbacks
+    cb(pipe)
+  File "/usr/local/lib/python3.10/dist-packages/motorcortex/subscribe.py", line 76, in post_remove_cb
+    self.__clb.submit(state_update, self.__req, self, self.connectionState())
+  File "/usr/lib/python3.10/concurrent/futures/thread.py", line 167, in submit
+    raise RuntimeError('cannot schedule new futures after shutdown')
+RuntimeError: cannot schedule new futures after shutdown
+2024-12-18 10:23:05,116 - pynng.nng - ERROR - Exception raised in pre pipe connect callback <function Subscribe.connect.<locals>.post_remove_cb at 0x7a5975eb2ef0>
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.10/dist-packages/pynng/nng.py", line 1301, in _do_callbacks
+    cb(pipe)
+  File "/usr/local/lib/python3.10/dist-packages/motorcortex/subscribe.py", line 76, in post_remove_cb
+    self.__clb.submit(state_update, self.__req, self, self.connectionState())
+  File "/usr/lib/python3.10/concurrent/futures/thread.py", line 167, in submit
+    raise RuntimeError('cannot schedule new futures after shutdown')
+RuntimeError: cannot schedule new futures after shutdown
+2024-12-18 10:37:54,021 - pynng.nng - ERROR - Exception raised in pre pipe connect callback <function Subscribe.connect.<locals>.post_remove_cb at 0x7e744dabeef0>
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.10/dist-packages/pynng/nng.py", line 1301, in _do_callbacks
+    cb(pipe)
+  File "/usr/local/lib/python3.10/dist-packages/motorcortex/subscribe.py", line 76, in post_remove_cb
+    self.__clb.submit(state_update, self.__req, self, self.connectionState())
+  File "/usr/lib/python3.10/concurrent/futures/thread.py", line 167, in submit
+    raise RuntimeError('cannot schedule new futures after shutdown')
+RuntimeError: cannot schedule new futures after shutdown
+2024-12-18 10:40:01,307 - pynng.nng - ERROR - Exception raised in pre pipe connect callback <function Subscribe.connect.<locals>.post_remove_cb at 0x7bfdf12b2ef0>
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.10/dist-packages/pynng/nng.py", line 1301, in _do_callbacks
+    cb(pipe)
+  File "/usr/local/lib/python3.10/dist-packages/motorcortex/subscribe.py", line 76, in post_remove_cb
+    self.__clb.submit(state_update, self.__req, self, self.connectionState())
+  File "/usr/lib/python3.10/concurrent/futures/thread.py", line 167, in submit
+    raise RuntimeError('cannot schedule new futures after shutdown')
+RuntimeError: cannot schedule new futures after shutdown
+2024-12-18 10:45:29,854 - pynng.nng - ERROR - Exception raised in pre pipe connect callback <function Subscribe.connect.<locals>.post_remove_cb at 0x7075176c2ef0>
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.10/dist-packages/pynng/nng.py", line 1301, in _do_callbacks
+    cb(pipe)
+  File "/usr/local/lib/python3.10/dist-packages/motorcortex/subscribe.py", line 76, in post_remove_cb
+    self.__clb.submit(state_update, self.__req, self, self.connectionState())
+  File "/usr/lib/python3.10/concurrent/futures/thread.py", line 167, in submit
+    raise RuntimeError('cannot schedule new futures after shutdown')
+RuntimeError: cannot schedule new futures after shutdown
+2024-12-18 11:08:19,881 - pynng.nng - ERROR - Exception raised in pre pipe connect callback <function Subscribe.connect.<locals>.post_remove_cb at 0x71e888f86ef0>
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.10/dist-packages/pynng/nng.py", line 1301, in _do_callbacks
+    cb(pipe)
+  File "/usr/local/lib/python3.10/dist-packages/motorcortex/subscribe.py", line 76, in post_remove_cb
+    self.__clb.submit(state_update, self.__req, self, self.connectionState())
+  File "/usr/lib/python3.10/concurrent/futures/thread.py", line 167, in submit
+    raise RuntimeError('cannot schedule new futures after shutdown')
+RuntimeError: cannot schedule new futures after shutdown
+2024-12-18 11:09:41,443 - pynng.nng - ERROR - Exception raised in pre pipe connect callback <function Subscribe.connect.<locals>.post_remove_cb at 0x707e20eb2ef0>
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.10/dist-packages/pynng/nng.py", line 1301, in _do_callbacks
+    cb(pipe)
+  File "/usr/local/lib/python3.10/dist-packages/motorcortex/subscribe.py", line 76, in post_remove_cb
+    self.__clb.submit(state_update, self.__req, self, self.connectionState())
+  File "/usr/lib/python3.10/concurrent/futures/thread.py", line 167, in submit
+    raise RuntimeError('cannot schedule new futures after shutdown')
+RuntimeError: cannot schedule new futures after shutdown
+2024-12-18 11:10:34,240 - pynng.nng - ERROR - Exception raised in pre pipe connect callback <function Subscribe.connect.<locals>.post_remove_cb at 0x7adce5d5aef0>
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.10/dist-packages/pynng/nng.py", line 1301, in _do_callbacks
+    cb(pipe)
+  File "/usr/local/lib/python3.10/dist-packages/motorcortex/subscribe.py", line 76, in post_remove_cb
+    self.__clb.submit(state_update, self.__req, self, self.connectionState())
+  File "/usr/lib/python3.10/concurrent/futures/thread.py", line 167, in submit
+    raise RuntimeError('cannot schedule new futures after shutdown')
+RuntimeError: cannot schedule new futures after shutdown
+2024-12-18 11:12:59,440 - pynng.nng - ERROR - Exception raised in pre pipe connect callback <function Subscribe.connect.<locals>.post_remove_cb at 0x76816f4baef0>
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.10/dist-packages/pynng/nng.py", line 1301, in _do_callbacks
+    cb(pipe)
+  File "/usr/local/lib/python3.10/dist-packages/motorcortex/subscribe.py", line 76, in post_remove_cb
+    self.__clb.submit(state_update, self.__req, self, self.connectionState())
+  File "/usr/lib/python3.10/concurrent/futures/thread.py", line 167, in submit
+    raise RuntimeError('cannot schedule new futures after shutdown')
+RuntimeError: cannot schedule new futures after shutdown
+2024-12-18 11:13:54,637 - pynng.nng - ERROR - Exception raised in pre pipe connect callback <function Subscribe.connect.<locals>.post_remove_cb at 0x7a8fad6c2ef0>
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.10/dist-packages/pynng/nng.py", line 1301, in _do_callbacks
+    cb(pipe)
+  File "/usr/local/lib/python3.10/dist-packages/motorcortex/subscribe.py", line 76, in post_remove_cb
+    self.__clb.submit(state_update, self.__req, self, self.connectionState())
+  File "/usr/lib/python3.10/concurrent/futures/thread.py", line 167, in submit
+    raise RuntimeError('cannot schedule new futures after shutdown')
+RuntimeError: cannot schedule new futures after shutdown
+2024-12-18 13:13:08,177 - pynng.nng - ERROR - Exception raised in pre pipe connect callback <function Subscribe.connect.<locals>.post_remove_cb at 0x7bb56757eef0>
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.10/dist-packages/pynng/nng.py", line 1301, in _do_callbacks
+    cb(pipe)
+  File "/usr/local/lib/python3.10/dist-packages/motorcortex/subscribe.py", line 76, in post_remove_cb
+    self.__clb.submit(state_update, self.__req, self, self.connectionState())
+  File "/usr/lib/python3.10/concurrent/futures/thread.py", line 167, in submit
+    raise RuntimeError('cannot schedule new futures after shutdown')
+RuntimeError: cannot schedule new futures after shutdown
+2024-12-18 13:46:25,155 - pynng.nng - ERROR - Exception raised in pre pipe connect callback <function Subscribe.connect.<locals>.post_remove_cb at 0x719eed8b2ef0>
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.10/dist-packages/pynng/nng.py", line 1301, in _do_callbacks
+    cb(pipe)
+  File "/usr/local/lib/python3.10/dist-packages/motorcortex/subscribe.py", line 76, in post_remove_cb
+    self.__clb.submit(state_update, self.__req, self, self.connectionState())
+  File "/usr/lib/python3.10/concurrent/futures/thread.py", line 167, in submit
+    raise RuntimeError('cannot schedule new futures after shutdown')
+RuntimeError: cannot schedule new futures after shutdown
+2024-12-18 14:25:12,544 - pynng.nng - ERROR - Exception raised in pre pipe connect callback <function Subscribe.connect.<locals>.post_remove_cb at 0x7dd7bf4b2ef0>
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.10/dist-packages/pynng/nng.py", line 1301, in _do_callbacks
+    cb(pipe)
+  File "/usr/local/lib/python3.10/dist-packages/motorcortex/subscribe.py", line 76, in post_remove_cb
+    self.__clb.submit(state_update, self.__req, self, self.connectionState())
+  File "/usr/lib/python3.10/concurrent/futures/thread.py", line 167, in submit
+    raise RuntimeError('cannot schedule new futures after shutdown')
+RuntimeError: cannot schedule new futures after shutdown
+2024-12-18 14:46:22,115 - pynng.nng - ERROR - Exception raised in pre pipe connect callback <function Subscribe.connect.<locals>.post_remove_cb at 0x72e57a57eef0>
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.10/dist-packages/pynng/nng.py", line 1301, in _do_callbacks
+    cb(pipe)
+  File "/usr/local/lib/python3.10/dist-packages/motorcortex/subscribe.py", line 76, in post_remove_cb
+    self.__clb.submit(state_update, self.__req, self, self.connectionState())
+  File "/usr/lib/python3.10/concurrent/futures/thread.py", line 167, in submit
+    raise RuntimeError('cannot schedule new futures after shutdown')
+RuntimeError: cannot schedule new futures after shutdown
+2024-12-18 14:53:57,158 - pynng.nng - ERROR - Exception raised in pre pipe connect callback <function Subscribe.connect.<locals>.post_remove_cb at 0x7a7d20f7aef0>
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.10/dist-packages/pynng/nng.py", line 1301, in _do_callbacks
+    cb(pipe)
+  File "/usr/local/lib/python3.10/dist-packages/motorcortex/subscribe.py", line 76, in post_remove_cb
+    self.__clb.submit(state_update, self.__req, self, self.connectionState())
+  File "/usr/lib/python3.10/concurrent/futures/thread.py", line 167, in submit
+    raise RuntimeError('cannot schedule new futures after shutdown')
+RuntimeError: cannot schedule new futures after shutdown
+2024-12-18 14:57:10,936 - pynng.nng - ERROR - Exception raised in pre pipe connect callback <function Subscribe.connect.<locals>.post_remove_cb at 0x7ad80357aef0>
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.10/dist-packages/pynng/nng.py", line 1301, in _do_callbacks
+    cb(pipe)
+  File "/usr/local/lib/python3.10/dist-packages/motorcortex/subscribe.py", line 76, in post_remove_cb
+    self.__clb.submit(state_update, self.__req, self, self.connectionState())
+  File "/usr/lib/python3.10/concurrent/futures/thread.py", line 167, in submit
+    raise RuntimeError('cannot schedule new futures after shutdown')
+RuntimeError: cannot schedule new futures after shutdown
+2024-12-18 16:01:51,738 - pynng.nng - ERROR - Exception raised in pre pipe connect callback <function Subscribe.connect.<locals>.post_remove_cb at 0x7e1d0617eef0>
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.10/dist-packages/pynng/nng.py", line 1301, in _do_callbacks
+    cb(pipe)
+  File "/usr/local/lib/python3.10/dist-packages/motorcortex/subscribe.py", line 76, in post_remove_cb
+    self.__clb.submit(state_update, self.__req, self, self.connectionState())
+  File "/usr/lib/python3.10/concurrent/futures/thread.py", line 167, in submit
+    raise RuntimeError('cannot schedule new futures after shutdown')
+RuntimeError: cannot schedule new futures after shutdown
+2024-12-18 17:19:52,963 - pynng.nng - ERROR - Exception raised in pre pipe connect callback <function Subscribe.connect.<locals>.post_remove_cb at 0x7999310b2ef0>
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.10/dist-packages/pynng/nng.py", line 1301, in _do_callbacks
+    cb(pipe)
+  File "/usr/local/lib/python3.10/dist-packages/motorcortex/subscribe.py", line 76, in post_remove_cb
+    self.__clb.submit(state_update, self.__req, self, self.connectionState())
+  File "/usr/lib/python3.10/concurrent/futures/thread.py", line 167, in submit
+    raise RuntimeError('cannot schedule new futures after shutdown')
+RuntimeError: cannot schedule new futures after shutdown
